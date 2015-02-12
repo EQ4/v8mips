@@ -197,7 +197,8 @@ Register ToRegister(int num) {
 // Implementation of RelocInfo.
 
 const int RelocInfo::kApplyMask = RelocInfo::kCodeTargetMask |
-                                  1 << RelocInfo::INTERNAL_REFERENCE;
+                                  1 << RelocInfo::INTERNAL_REFERENCE |
+                                  1 << RelocInfo::INTERNAL_REFERENCE_ENCODED;
 
 
 bool RelocInfo::IsCodedSpecially() {
@@ -2377,48 +2378,56 @@ void Assembler::RecordDeoptReason(const int reason, const int raw_position) {
 }
 
 
-int Assembler::RelocateInternalReference(byte* pc, intptr_t pc_delta) {
+int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, byte* pc, intptr_t pc_delta) {
   Instr instr = instr_at(pc);
-  if (IsLui(instr)) {
-    Instr instr_lui = instr_at(pc + 0 * Assembler::kInstrSize);
-    Instr instr_ori = instr_at(pc + 1 * Assembler::kInstrSize);
-    DCHECK(IsOri(instr_ori));
-    int32_t imm = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
-    imm |= (instr_ori & static_cast<int32_t>(kImm16Mask));
-    if (imm == kEndOfJumpChain) {
-      return 0;  // Number of instructions patched.
-    }
-    imm += pc_delta;
-    DCHECK((imm & 3) == 0);
 
-    instr_lui &= ~kImm16Mask;
-    instr_ori &= ~kImm16Mask;
-
-    instr_at_put(pc + 0 * Assembler::kInstrSize,
-                 instr_lui | ((imm >> kLuiShift) & kImm16Mask));
-    instr_at_put(pc + 1 * Assembler::kInstrSize,
-                 instr_ori | (imm & kImm16Mask));
-    return 2;  // Number of instructions patched.
-  } else if (IsJ(instr)) {
-    uint32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
-    if (static_cast<int32_t>(imm28) == kEndOfJumpChain) {
-      return 0;  // Number of instructions patched.
-    }
-    imm28 += pc_delta;
-    imm28 &= kImm28Mask;
-    DCHECK((imm28 & 3) == 0);
-
-    instr &= ~kImm26Mask;
-    uint32_t imm26 = imm28 >> 2;
-    DCHECK(is_uint26(imm26));
-
-    instr_at_put(pc, instr | (imm26 & kImm26Mask));
+  if (RelocInfo::IsInternalReference(rmode)) {
+    int32_t* p = reinterpret_cast<int32_t*>(pc);
+    *p += pc_delta;
     return 1;  // Number of instructions patched.
   } else {
-    PrintF("RelocateInternalReference FAIL: pc: %p, delta: %d, instr: %08x\n",
-            pc, pc_delta, instr);
-    UNREACHABLE();
-    return 0;
+    DCHECK(RelocInfo::IsInternalReferenceEncoded(rmode));
+    if (IsLui(instr)) {
+      Instr instr_lui = instr_at(pc + 0 * Assembler::kInstrSize);
+      Instr instr_ori = instr_at(pc + 1 * Assembler::kInstrSize);
+      DCHECK(IsOri(instr_ori));
+      int32_t imm = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
+      imm |= (instr_ori & static_cast<int32_t>(kImm16Mask));
+      if (imm == kEndOfJumpChain) {
+        return 0;  // Number of instructions patched.
+      }
+      imm += pc_delta;
+      DCHECK((imm & 3) == 0);
+
+      instr_lui &= ~kImm16Mask;
+      instr_ori &= ~kImm16Mask;
+
+      instr_at_put(pc + 0 * Assembler::kInstrSize,
+                   instr_lui | ((imm >> kLuiShift) & kImm16Mask));
+      instr_at_put(pc + 1 * Assembler::kInstrSize,
+                   instr_ori | (imm & kImm16Mask));
+      return 2;  // Number of instructions patched.
+    } else if (IsJ(instr)) {
+      uint32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
+      if (static_cast<int32_t>(imm28) == kEndOfJumpChain) {
+        return 0;  // Number of instructions patched.
+      }
+      imm28 += pc_delta;
+      imm28 &= kImm28Mask;
+      DCHECK((imm28 & 3) == 0);
+
+      instr &= ~kImm26Mask;
+      uint32_t imm26 = imm28 >> 2;
+      DCHECK(is_uint26(imm26));
+
+      instr_at_put(pc, instr | (imm26 & kImm26Mask));
+      return 1;  // Number of instructions patched.
+    } else {
+      PrintF("RelocateInternalReference FAIL: pc: %p, delta: %d, instr: %08x\n",
+              pc, pc_delta, instr);
+      UNREACHABLE();
+      return 0;
+    }
   }
 }
 
@@ -2459,11 +2468,16 @@ void Assembler::GrowBuffer() {
   // Relocate runtime entries.
   for (RelocIterator it(desc); !it.done(); it.next()) {
     RelocInfo::Mode rmode = it.rinfo()->rmode();
-    if (rmode == RelocInfo::INTERNAL_REFERENCE) {
+    if (rmode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
       byte* p = reinterpret_cast<byte*>(it.rinfo()->pc());
-      RelocateInternalReference(p, pc_delta);
+      RelocateInternalReference(rmode, p, pc_delta);
     }
   }
+
+  // plind dev note: we might be able to do BOTH kinds of relocation above, not just
+  // the ENCODED kind. But I am not certain. I think that any bound labels will be fine to be
+  // relocated that way, as long as they get the correct rmode. If so, delete the below stuff.
+  // Please delete this comment before commit
 
   // Relocate internal references.
   for (auto pos : internal_reference_positions_) {
@@ -2493,7 +2507,7 @@ void Assembler::dd(uint32_t data) {
 
 void Assembler::dd(Label* label) {
   CheckBuffer();
-  RecordRelocInfo(RelocInfo::CONST_POOL);
+  RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE);
   if (label->is_bound()) {
     uint32_t data = reinterpret_cast<uint32_t>(buffer_ + label->pos());
     *reinterpret_cast<uint32_t*>(pc_) = data;
@@ -2606,7 +2620,7 @@ void Assembler::CheckTrampolinePool() {
           // Buffer growth (and relocation) must be blocked for internal
           // references until associated instructions are emitted and available
           // to be patched.
-          RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE);
+          RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE_ENCODED);
           lui(at, (imm32 & kHiMask) >> kLuiShift);
           ori(at, at, (imm32 & kImm16Mask));
         }
