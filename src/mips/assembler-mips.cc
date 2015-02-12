@@ -713,7 +713,8 @@ int Assembler::target_at(int32_t pos) {
       return pos - delta;
     }
   } else {  // IsLabel(instr)
-    int32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
+    int32_t imm28 = instr & kImm26Mask;
+
     if (imm28 == kEndOfJumpChain) {
       // EndOfChain sentinel is returned directly, not relative to pc or pos.
       return kEndOfChain;
@@ -769,6 +770,9 @@ void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
     instr_at_put(pos, instr | (imm26 & kImm26Mask));
   } else {
     uint32_t imm = reinterpret_cast<uint32_t>(buffer_) + target_pos;
+    PrintF("target_at_put(): internal ref: I read out %08x, at pos %d (%08x),"
+           "will patch to %08x\n",
+           instr, pos, reinterpret_cast<uint32_t>(buffer_) + pos, imm);
     instr_at_put(pos, imm);
   }
 }
@@ -811,7 +815,10 @@ void Assembler::bind_to(Label* L, int pos) {
     int32_t dist = pos - fixup_pos;
     next(L);  // Call next before overwriting link with target at fixup_pos.
     Instr instr = instr_at(fixup_pos);
-    if (IsBranch(instr)) {
+    if (IsLabel(instr)) {
+      target_at_put(fixup_pos, pos);
+      internal_reference_positions_.push_back(fixup_pos);
+    } else if (IsBranch(instr)) {
       if (dist > kMaxBranchOffset) {
         if (trampoline_pos == kInvalidSlotPos) {
           trampoline_pos = get_trampoline_entry(fixup_pos);
@@ -2400,14 +2407,11 @@ int Assembler::RelocateInternalReference(byte* pc, intptr_t pc_delta) {
 
     instr_at_put(pc, instr | (imm26 & kImm26Mask));
     return 1;  // Number of instructions patched.
-  } else {  // IsLabel(instr)
-    int32_t* p = reinterpret_cast<int32_t*>(pc);
-    uint32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
-    if (static_cast<int32_t>(imm28) == kEndOfJumpChain) {
-      return 0;  // Number of instructions patched.
-    }
-    *p += pc_delta;
-    return 1;  // Number of instructions patched.
+  } else {
+    PrintF("RelocateInternalReference FAIL: pc: %p, delta: %d, instr: %08x\n",
+            pc, pc_delta, instr);
+    UNREACHABLE();
+    return 0;
   }
 }
 
@@ -2454,6 +2458,14 @@ void Assembler::GrowBuffer() {
     }
   }
 
+  // Relocate internal references.
+  for (auto pos : internal_reference_positions_) {
+    int32_t* p = reinterpret_cast<int32_t*>(buffer_ + pos);
+    PrintF("GrowBuffer(): relocating pos: %d from 0x%08x to 0x%08x\n",
+           pos, *p, *p + pc_delta);
+    *p += pc_delta;
+  }
+
   DCHECK(!overflow());
 }
 
@@ -2474,10 +2486,13 @@ void Assembler::dd(uint32_t data) {
 
 void Assembler::dd(Label* label) {
   CheckBuffer();
-  RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE);
+  RecordRelocInfo(RelocInfo::CONST_POOL);
   if (label->is_bound()) {
     uint32_t data = reinterpret_cast<uint32_t>(buffer_ + label->pos());
     *reinterpret_cast<uint32_t*>(pc_) = data;
+    PrintF("dd() bound: label->pos: %d, conv to data: 0x%08x, stored at %p\n",
+           label->pos(), data, pc_);
+    internal_reference_positions_.push_back(pc_offset());
     pc_ += sizeof(uint32_t);
   } else {
     int target_pos;
@@ -2496,7 +2511,10 @@ void Assembler::dd(Label* label) {
     int imm26 = diff >> 2;
     DCHECK(is_int26(imm26));
     // Emit special LABEL instruction.
-    emit(LABEL | (imm26 & kImm26Mask));
+    PrintF("dd() un-bound: target_pos: %d, diff: %d, instr written: %08x, "
+           "LABEL: %08x\n",
+           target_pos, diff, (LABEL | (imm26 & kImm26Mask)), LABEL);
+    emit(LABEL | (imm26 & kImm26Mask));  // LSB set for unbound label.
   }
 }
 
