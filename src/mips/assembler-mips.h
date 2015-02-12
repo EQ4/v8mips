@@ -1065,6 +1065,7 @@ class Assembler : public AssemblerBase {
 
   static bool IsJump(Instr instr);
   static bool IsJ(Instr instr);
+  static bool IsLabel(Instr instr);
   static bool IsLui(Instr instr);
   static bool IsOri(Instr instr);
 

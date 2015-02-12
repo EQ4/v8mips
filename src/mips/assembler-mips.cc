@@ -548,6 +548,13 @@ bool Assembler::IsJ(Instr instr) {
 }
 
 
+bool Assembler::IsLabel(Instr instr) {
+  uint32_t opcode = GetOpcodeField(instr);
+  // Checks if the instruction is a LABEL pseudo-instruction.
+  return opcode == LABEL;
+}
+
+
 bool Assembler::IsJal(Instr instr) {
   return GetOpcodeField(instr) == JAL;
 }
