@@ -1023,7 +1023,7 @@ class Assembler : public AssemblerBase {
   void RecordDeoptReason(const int reason, const int raw_position);
 
 
-  static int RelocateInternalReference(byte* pc, intptr_t pc_delta);
+  static int RelocateInternalReference(RelocInfo::Mode rmode, byte* pc, intptr_t pc_delta);
 
   // Writes a single byte or word of data in the code stream.  Used for
   // inline tables, e.g., jump-tables.
@@ -1065,6 +1065,7 @@ class Assembler : public AssemblerBase {
 
   static bool IsJump(Instr instr);
   static bool IsJ(Instr instr);
+  static bool IsLabel(Instr instr);
   static bool IsLui(Instr instr);
   static bool IsOri(Instr instr);
 
