@@ -38,8 +38,6 @@
 
 #include <stdio.h>
 
-#include <deque>
-
 #include "src/assembler.h"
 #include "src/mips/constants-mips.h"
 #include "src/serialize.h"
@@ -1365,11 +1363,6 @@ class Assembler : public AssemblerBase {
   static const int kTrampolineSlotsSize = 4 * kInstrSize;
   static const int kMaxBranchOffset = (1 << (18 - 1)) - 1;
   static const int kInvalidSlotPos = -1;
-
-  // Internal reference positions, required for (potential) patching in
-  // GrowBuffer(); contains only those internal references whose labels
-  // are already bound.
-  std::deque<int> internal_reference_positions_;
 
   Trampoline trampoline_;
   bool internal_trampoline_exception_;

@@ -828,7 +828,6 @@ void Assembler::bind_to(Label* L, int pos) {
     Instr instr = instr_at(fixup_pos);
     if (IsLabel(instr)) {
       target_at_put(fixup_pos, pos);
-      internal_reference_positions_.push_back(fixup_pos);
     } else if (IsBranch(instr)) {
       if (dist > kMaxBranchOffset) {
         if (trampoline_pos == kInvalidSlotPos) {
@@ -2385,6 +2384,9 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, byte* pc, intptr
   Instr instr = instr_at(pc);
 
   if (RelocInfo::IsInternalReference(rmode)) {
+    if (IsLabel(instr)) {
+      return 0;  // Number of instructions patched.
+    }
     int32_t* p = reinterpret_cast<int32_t*>(pc);
     *p += pc_delta;
     return 1;  // Number of instructions patched.
@@ -2469,18 +2471,10 @@ void Assembler::GrowBuffer() {
   // Relocate runtime entries.
   for (RelocIterator it(desc); !it.done(); it.next()) {
     RelocInfo::Mode rmode = it.rinfo()->rmode();
-    if (rmode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
+    if (rmode == RelocInfo::INTERNAL_REFERENCE_ENCODED || rmode == RelocInfo::INTERNAL_REFERENCE) {
       byte* p = reinterpret_cast<byte*>(it.rinfo()->pc());
       RelocateInternalReference(rmode, p, pc_delta);
     }
-  }
-
-  // Relocate internal references.
-  for (auto pos : internal_reference_positions_) {
-    int32_t* p = reinterpret_cast<int32_t*>(buffer_ + pos);
-    PrintF("GrowBuffer(): relocating pos: %d from 0x%08x to 0x%08x\n",
-           pos, *p, *p + pc_delta);
-    *p += pc_delta;
   }
   DCHECK(!overflow());
 }
@@ -2508,7 +2502,6 @@ void Assembler::dd(Label* label) {
     *reinterpret_cast<uint32_t*>(pc_) = data;
     PrintF("dd() bound: label->pos: %d, conv to data: 0x%08x, stored at %p\n",
            label->pos(), data, pc_);
-    internal_reference_positions_.push_back(pc_offset());
     pc_ += sizeof(uint32_t);
   } else {
     int target_pos;
