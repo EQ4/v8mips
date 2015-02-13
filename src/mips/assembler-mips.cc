@@ -549,13 +549,6 @@ bool Assembler::IsJ(Instr instr) {
 }
 
 
-bool Assembler::IsLabel(Instr instr) {
-  uint32_t opcode = GetOpcodeField(instr);
-  // Checks if the instruction is a LABEL pseudo-instruction.
-  return opcode == LABEL;
-}
-
-
 bool Assembler::IsJal(Instr instr) {
   return GetOpcodeField(instr) == JAL;
 }
@@ -672,6 +665,16 @@ bool Assembler::IsAndImmediate(Instr instr) {
 
 int Assembler::target_at(int32_t pos) {
   Instr instr = instr_at(pos);
+  if (internal_reference_positions_.find(pos) != internal_reference_positions_.end()) {
+    if (instr == 0) {
+      return kEndOfChain;
+    } else {
+      int32_t instr_address = reinterpret_cast<int32_t>(buffer_ + pos);
+      int32_t delta = instr_address - instr;
+      DCHECK(pos > delta);
+      return pos - delta;
+    }
+  }
   if ((instr & ~kImm16Mask) == 0) {
     // Emitted label constant, not part of a branch.
     if (instr == 0) {
@@ -720,23 +723,24 @@ int Assembler::target_at(int32_t pos) {
       DCHECK(pos > delta);
       return pos - delta;
     }
-  } else {  // IsLabel(instr)
-    DCHECK(IsLabel(instr));
-    int32_t imm26 = instr & kImm26Mask;
-
-    if (imm26 == kEndOfJumpChain) {
-      // EndOfChain sentinel is returned directly, not relative to pc or pos.
-      return kEndOfChain;
-    } else {
-      int32_t imm28 = (instr << 6) >> 4;
-      return pos + imm28;
-    }
+  } else {
+    UNREACHABLE();
+    return 0;
   }
 }
 
 
 void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
   Instr instr = instr_at(pos);
+
+  if (internal_reference_positions_.find(pos) != internal_reference_positions_.end()) {
+    uint32_t imm = reinterpret_cast<uint32_t>(buffer_) + target_pos;
+    PrintF("target_at_put(): internal ref: I read out %08x, at pos %d (%08x),"
+           "will patch to %08x\n",
+           instr, pos, reinterpret_cast<uint32_t>(buffer_) + pos, imm);
+    instr_at_put(pos, imm);
+    return;
+  }
   if ((instr & ~kImm16Mask) == 0) {
     DCHECK(target_pos == kEndOfChain || target_pos >= 0);
     // Emitted label constant, not part of a branch.
@@ -779,12 +783,7 @@ void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
 
     instr_at_put(pos, instr | (imm26 & kImm26Mask));
   } else {
-    DCHECK(IsLabel(instr));
-    uint32_t imm = reinterpret_cast<uint32_t>(buffer_) + target_pos;
-    PrintF("target_at_put(): internal ref: I read out %08x, at pos %d (%08x),"
-           "will patch to %08x\n",
-           instr, pos, reinterpret_cast<uint32_t>(buffer_) + pos, imm);
-    instr_at_put(pos, imm);
+    UNREACHABLE();
   }
 }
 
@@ -826,7 +825,7 @@ void Assembler::bind_to(Label* L, int pos) {
     int32_t dist = pos - fixup_pos;
     next(L);  // Call next before overwriting link with target at fixup_pos.
     Instr instr = instr_at(fixup_pos);
-    if (IsLabel(instr)) {
+    if (internal_reference_positions_.find(fixup_pos) != internal_reference_positions_.end()) {
       target_at_put(fixup_pos, pos);
     } else if (IsBranch(instr)) {
       if (dist > kMaxBranchOffset) {
@@ -2384,10 +2383,10 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, byte* pc, intptr
   Instr instr = instr_at(pc);
 
   if (RelocInfo::IsInternalReference(rmode)) {
-    if (IsLabel(instr)) {
+    int32_t* p = reinterpret_cast<int32_t*>(pc);
+    if (*p == 0) {
       return 0;  // Number of instructions patched.
     }
-    int32_t* p = reinterpret_cast<int32_t*>(pc);
     *p += pc_delta;
     return 1;  // Number of instructions patched.
   } else {
@@ -2504,26 +2503,9 @@ void Assembler::dd(Label* label) {
            label->pos(), data, pc_);
     pc_ += sizeof(uint32_t);
   } else {
-    int target_pos;
-    if (label->is_linked()) {
-      // Point to previous instruction that uses the link.
-      target_pos = label->pos();
-    } else {
-      // First entry of the link chain points to itself.
-      target_pos = pc_offset();
-    }
-    label->link_to(pc_offset());
-    // Encode internal reference to unbound label. We set the least significant
-    // bit to distinguish unbound internal references in GrowBuffer() below.
-    int diff = target_pos - pc_offset();
-    DCHECK_EQ(0, diff & 3);
-    int imm26 = diff >> 2;
-    DCHECK(is_int26(imm26));
-    // Emit special LABEL instruction.
-    PrintF("dd() un-bound: target_pos: %d, diff: %d, instr written: %08x, "
-           "LABEL: %08x\n",
-           target_pos, diff, (LABEL | (imm26 & kImm26Mask)), LABEL);
-    emit(LABEL | (imm26 & kImm26Mask));
+    uint32_t target_pos = jump_address(label);
+    emit(target_pos);
+    internal_reference_positions_.insert(label->pos());
   }
 }
 

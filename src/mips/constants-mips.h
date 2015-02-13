@@ -339,10 +339,6 @@ enum Opcode {
 
   DADDI     =   ((3 << 3) + 0) << kOpcodeShift,  // This is also BNEC.
   SPECIAL2  =   ((3 << 3) + 4) << kOpcodeShift,
-
-  // Not a real instruction. Wee need it for emitted labels.
-  LABEL     =   ((3 << 3) + 5) << kOpcodeShift,
-
   SPECIAL3  =   ((3 << 3) + 7) << kOpcodeShift,
 
   LB        =   ((4 << 3) + 0) << kOpcodeShift,

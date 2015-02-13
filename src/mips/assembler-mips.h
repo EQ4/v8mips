@@ -38,6 +38,8 @@
 
 #include <stdio.h>
 
+#include <set>
+
 #include "src/assembler.h"
 #include "src/mips/constants-mips.h"
 #include "src/serialize.h"
@@ -1063,7 +1065,6 @@ class Assembler : public AssemblerBase {
 
   static bool IsJump(Instr instr);
   static bool IsJ(Instr instr);
-  static bool IsLabel(Instr instr);
   static bool IsLui(Instr instr);
   static bool IsOri(Instr instr);
 
@@ -1363,6 +1364,10 @@ class Assembler : public AssemblerBase {
   static const int kTrampolineSlotsSize = 4 * kInstrSize;
   static const int kMaxBranchOffset = (1 << (18 - 1)) - 1;
   static const int kInvalidSlotPos = -1;
+
+  // Internal reference positions, required for unbounded internal reference
+  // labels.
+  std::set<int> internal_reference_positions_;
 
   Trampoline trampoline_;
   bool internal_trampoline_exception_;
