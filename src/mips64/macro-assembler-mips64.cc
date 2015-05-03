@@ -2039,16 +2039,34 @@ void MacroAssembler::Branch(int16_t offset, Condition cond, Register rs,
 }
 
 
+void MacroAssembler::EmitLongBranch(Label* L, BranchDelaySlot bdslot) {
+  if (kArchVariant == kMips64r6 && bdslot == PROTECT) {
+    bc(L);
+  } else {
+    Jr(L, bdslot);
+  }
+}
+
+
+void MacroAssembler::EmitLongBranchAndLink(Label* L, BranchDelaySlot bdslot) {
+  if (kArchVariant == kMips64r6 && bdslot == PROTECT) {
+    balc(L);
+  } else {
+    Jalr(L, bdslot);
+  }
+}
+
+
 void MacroAssembler::Branch(Label* L, BranchDelaySlot bdslot) {
   if (L->is_bound()) {
     if (is_near(L)) {
       BranchShort(L, bdslot);
     } else {
-      Jr(L, bdslot);
+      EmitLongBranch(L, bdslot);
     }
   } else {
     if (is_trampoline_emitted()) {
-      Jr(L, bdslot);
+      EmitLongBranch(L, bdslot);
     } else {
       BranchShort(L, bdslot);
     }
@@ -2067,10 +2085,10 @@ void MacroAssembler::Branch(Label* L, Condition cond, Register rs,
         Label skip;
         Condition neg_cond = NegateCondition(cond);
         BranchShort(&skip, neg_cond, rs, rt);
-        Jr(L, bdslot);
+        EmitLongBranch(L, bdslot);
         bind(&skip);
       } else {
-        Jr(L, bdslot);
+        EmitLongBranch(L, bdslot);
       }
     }
   } else {
@@ -2079,10 +2097,10 @@ void MacroAssembler::Branch(Label* L, Condition cond, Register rs,
         Label skip;
         Condition neg_cond = NegateCondition(cond);
         BranchShort(&skip, neg_cond, rs, rt);
-        Jr(L, bdslot);
+        EmitLongBranch(L, bdslot);
         bind(&skip);
       } else {
-        Jr(L, bdslot);
+        EmitLongBranch(L, bdslot);
       }
     } else {
       BranchShort(L, cond, rs, rt, bdslot);
@@ -2648,11 +2666,11 @@ void MacroAssembler::BranchAndLink(Label* L, BranchDelaySlot bdslot) {
     if (is_near(L)) {
       BranchAndLinkShort(L, bdslot);
     } else {
-      Jalr(L, bdslot);
+      EmitLongBranchAndLink(L, bdslot);
     }
   } else {
     if (is_trampoline_emitted()) {
-      Jalr(L, bdslot);
+      EmitLongBranchAndLink(L, bdslot);
     } else {
       BranchAndLinkShort(L, bdslot);
     }
@@ -2670,7 +2688,7 @@ void MacroAssembler::BranchAndLink(Label* L, Condition cond, Register rs,
       Label skip;
       Condition neg_cond = NegateCondition(cond);
       BranchShort(&skip, neg_cond, rs, rt);
-      Jalr(L, bdslot);
+      EmitLongBranchAndLink(L, bdslot);
       bind(&skip);
     }
   } else {
@@ -2678,7 +2696,7 @@ void MacroAssembler::BranchAndLink(Label* L, Condition cond, Register rs,
       Label skip;
       Condition neg_cond = NegateCondition(cond);
       BranchShort(&skip, neg_cond, rs, rt);
-      Jalr(L, bdslot);
+      EmitLongBranchAndLink(L, bdslot);
       bind(&skip);
     } else {
       BranchAndLinkShort(L, cond, rs, rt, bdslot);

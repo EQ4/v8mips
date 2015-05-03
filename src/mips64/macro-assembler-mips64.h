@@ -211,6 +211,9 @@ class MacroAssembler: public Assembler {
     Ret(cond, rs, rt, bd);
   }
 
+  void EmitLongBranch(Label* L, BranchDelaySlot bdslot);
+  void EmitLongBranchAndLink(Label* L, BranchDelaySlot bdslot);
+
   void Branch(Label* L,
               Condition cond,
               Register rs,
