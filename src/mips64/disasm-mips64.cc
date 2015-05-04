@@ -1209,6 +1209,12 @@ void Decoder::DecodeTypeImmediate(Instruction* instr) {
     case BNE:
       Format(instr, "bne     'rs, 'rt, 'imm16u");
       break;
+    case BC:
+      Format(instr, "bc      'imm26x");
+      break;
+    case BALC:
+      Format(instr, "balc    'imm26x");
+      break;
     case BLEZ:
       if ((instr->RtFieldRaw() == 0)
           && (instr->RsFieldRaw() != 0)) {

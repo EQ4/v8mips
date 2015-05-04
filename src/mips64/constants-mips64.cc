@@ -172,6 +172,7 @@ bool Instruction::IsLinkingInstruction() const {
   const int op = OpcodeFieldRaw();
   switch (op) {
     case JAL:
+    case BALC:
       return true;
     case REGIMM:
       switch (RtFieldRaw()) {
@@ -348,6 +349,8 @@ Instruction::Type Instruction::InstructionType() const {
     case LDC1:
     case SWC1:
     case SDC1:
+    case BC:
+    case BALC:
       return kImmediateType;
     // 26 bits immediate type instructions. e.g.: j imm26.
     case J:

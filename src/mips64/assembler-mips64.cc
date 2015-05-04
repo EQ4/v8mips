@@ -469,6 +469,13 @@ bool Assembler::IsBranch(Instr instr) {
 }
 
 
+bool Assembler::IsBranchCompact(Instr instr) {
+  uint32_t opcode = GetOpcodeField(instr);
+  // Checks if the instruction is a branch.
+  return opcode == BC || opcode == BALC;
+}
+
+
 bool Assembler::IsEmittedConstant(Instr instr) {
   uint32_t label_constant = GetLabelConst(instr);
   return label_constant == 0;  // Emitted label const in reg-exp engine.
@@ -637,7 +644,7 @@ int Assembler::target_at(int pos, bool is_internal) {
      }
   }
   // Check we have a branch or jump instruction.
-  DCHECK(IsBranch(instr) || IsLui(instr));
+  DCHECK(IsBranch(instr) || IsBranchCompact(instr) || IsLui(instr));
   // Do NOT change this to <<2. We rely on arithmetic shifts here, assuming
   // the compiler uses arithmetic shifts for signed integers.
   if (IsBranch(instr)) {
@@ -647,6 +654,15 @@ int Assembler::target_at(int pos, bool is_internal) {
       return kEndOfChain;
     } else {
       return pos + kBranchPCOffset + imm18;
+    }
+  } else if (IsBranchCompact(instr)) {
+    DCHECK(kArchVariant == kMips64r6);
+    int32_t imm28 = ((instr & static_cast<int32_t>(kImm26Mask)) << 6) >> 4;
+    if (imm28 == kEndOfChain) {
+      // EndOfChain sentinel is returned directly, not relative to pc or pos.
+      return kEndOfChain;
+    } else {
+      return pos + kBranchPCOffset + imm28;
     }
   } else if (IsLui(instr)) {
     Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
@@ -687,6 +703,7 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
   }
   Instr instr = instr_at(pos);
   if ((instr & ~kImm16Mask) == 0) {
+    // plind: this is very worrisome for 26-bit compact branch ... figure it out and fix ......................
     DCHECK(target_pos == kEndOfChain || target_pos >= 0);
     // Emitted label constant, not part of a branch.
     // Make label relative to Code* of generated Code object.
@@ -694,7 +711,7 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
     return;
   }
 
-  DCHECK(IsBranch(instr) || IsLui(instr));
+  DCHECK(IsBranch(instr) || IsBranchCompact(instr) || IsLui(instr));
   if (IsBranch(instr)) {
     int32_t imm18 = target_pos - (pos + kBranchPCOffset);
     DCHECK((imm18 & 3) == 0);
@@ -704,6 +721,17 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
     DCHECK(is_int16(imm16));
 
     instr_at_put(pos, instr | (imm16 & kImm16Mask));
+  } else if (IsBranchCompact(instr)) {
+    DCHECK(kArchVariant == kMips64r6);
+    int32_t imm28 = target_pos - (pos + kBranchPCOffset);
+    DCHECK((imm28 & 3) == 0);
+
+    // plind: silly redundant checks in here ... clean this up......................................
+    instr &= ~kImm26Mask;
+    int32_t imm26 = imm28 >> 2;
+    DCHECK(is_int26(imm26));
+
+    instr_at_put(pos, instr | (imm26 & kImm26Mask));
   } else if (IsLui(instr)) {
     Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
     Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
@@ -787,7 +815,8 @@ void Assembler::bind_to(Label* L, int pos) {
       }
       target_at_put(fixup_pos, pos, false);
     } else {
-      DCHECK(IsJ(instr) || IsLui(instr) || IsEmittedConstant(instr));
+      DCHECK(IsJ(instr) || IsLui(instr) || IsBranchCompact(instr) ||
+             IsEmittedConstant(instr));
       target_at_put(fixup_pos, pos, false);
     }
   }
@@ -945,6 +974,14 @@ void Assembler::GenInstrImmediate(Opcode opcode,
 }
 
 
+void Assembler::GenInstrImmediate26(Opcode opcode,
+                                    int32_t j) {
+  DCHECK(is_int26(j));
+  Instr instr = opcode | (j & kImm26Mask);
+  emit(instr);
+}
+
+
 void Assembler::GenInstrJump(Opcode opcode,
                              uint32_t address) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
@@ -1098,6 +1135,33 @@ int32_t Assembler::branch_offset21_compact(Label* L,
 }
 
 
+int32_t Assembler::branch_offset26_compact(Label* L,
+    bool jump_elimination_allowed) {
+  int32_t target_pos;
+  if (L->is_bound()) {
+    target_pos = L->pos();
+  } else {
+    if (L->is_linked()) {
+      target_pos = L->pos();
+      L->link_to(pc_offset());
+    } else {
+      L->link_to(pc_offset());
+      if (!trampoline_emitted_) {
+        unbound_labels_count_++;
+        next_buffer_check_ -= kTrampolineSlotsSize;
+      }
+      return kEndOfChain;
+    }
+  }
+
+  // int32_t offset = target_pos - pc_offset();
+  int32_t offset = target_pos - (pc_offset() + kBranchPCOffset);
+  DCHECK((offset & 3) == 0);
+  DCHECK(is_int26(offset >> 2));
+  return offset;
+}
+
+
 void Assembler::label_at_put(Label* L, int at_offset) {
   int target_pos;
   if (L->is_bound()) {
@@ -1134,6 +1198,20 @@ void Assembler::b(int16_t offset) {
 void Assembler::bal(int16_t offset) {
   positions_recorder()->WriteRecordedPositions();
   bgezal(zero_reg, offset);
+}
+
+
+void Assembler::bc(int32_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  positions_recorder()->WriteRecordedPositions();
+  GenInstrImmediate26(BC, offset);
+}
+
+
+void Assembler::balc(int32_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  positions_recorder()->WriteRecordedPositions();
+  GenInstrImmediate26(BALC, offset);
 }
 
 

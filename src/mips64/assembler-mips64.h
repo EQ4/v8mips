@@ -469,6 +469,7 @@ class Assembler : public AssemblerBase {
   int32_t branch_offset_compact(Label* L, bool jump_elimination_allowed);
   int32_t branch_offset21(Label* L, bool jump_elimination_allowed);
   int32_t branch_offset21_compact(Label* L, bool jump_elimination_allowed);
+  int32_t branch_offset26_compact(Label* L, bool jump_elimination_allowed);
   int32_t shifted_branch_offset(Label* L, bool jump_elimination_allowed) {
     int32_t o = branch_offset(L, jump_elimination_allowed);
     DCHECK((o & 3) == 0);   // Assert the offset is aligned.
@@ -634,6 +635,11 @@ class Assembler : public AssemblerBase {
   void b(Label* L) { b(branch_offset(L, false)>>2); }
   void bal(int16_t offset);
   void bal(Label* L) { bal(branch_offset(L, false)>>2); }
+
+  void bc(int32_t offset);
+  void bc(Label* L) { bc(branch_offset26_compact(L, false) >> 2); }
+  void balc(int32_t offset);
+  void balc(Label* L) { balc(branch_offset26_compact(L, false) >> 2); }
 
   void beq(Register rs, Register rt, int16_t offset);
   void beq(Register rs, Register rt, Label* L) {
@@ -1119,6 +1125,7 @@ class Assembler : public AssemblerBase {
 
   // Check if an instruction is a branch of some kind.
   static bool IsBranch(Instr instr);
+  static bool IsBranchCompact(Instr instr);
   static bool IsBeq(Instr instr);
   static bool IsBne(Instr instr);
 
@@ -1352,6 +1359,8 @@ class Assembler : public AssemblerBase {
                          Register r1,
                          FPURegister r2,
                          int32_t  j);
+  void GenInstrImmediate26(Opcode opcode,
+                           int32_t  j);
 
 
   void GenInstrJump(Opcode opcode,

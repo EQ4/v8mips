@@ -29,6 +29,7 @@
 
 #include "src/v8.h"
 
+#include "src/disasm.h"  // plind - temporarily added for debug disasm .............................
 #include "src/base/utils/random-number-generator.h"
 #include "src/disassembler.h"
 #include "src/factory.h"
@@ -1867,6 +1868,71 @@ TEST(MIPS21)  {
 }
 
 
+TEST(MIPS22) {
+  if (kArchVariant == kMips64r6) {
+    CcTest::InitializeVM();
+    Isolate* isolate = CcTest::i_isolate();
+    HandleScope scope(isolate);
+
+    MacroAssembler assm(isolate, NULL, 0);
+    Label compute, entry, done, routine1, routine2;
+
+    __ mov(t0, ra);  // Save return address.
+    __ li(v0, 0);
+    __ bc(&entry);
+
+    __ bind(&routine1);
+    __ addiu(v0, v0, 1);
+    __ jr(ra);
+    __ nop();
+
+    __ bind(&compute);
+
+    __ balc(&routine2);
+
+    // Generate long sequence of add instructions.
+    for (int i=0; i<160000; ++i) {
+      __ addiu(v0, v0, 1);
+    }
+
+    __ bind(&entry);
+    __ Branch(&done, gt, v0, Operand(zero_reg));
+    __ li(v0, 10000000);
+
+    // __ b(&compute);
+    // __ nop();
+    __ bc(&compute);
+
+    __ bind(&done);
+    __ balc(&routine1);
+    __ mov(ra, t0);  // Restore return address.
+    __ jr(ra);
+    __ nop();
+
+    __ bind(&routine2);
+    __ addiu(v0, v0, 1);
+    __ jr(ra);
+    __ nop();
+
+
+// #ifdef OBJECT_PRINT
+//     OFStream os(stdout);
+//     code->Print(os);
+//     byte* begin = code->instruction_start();
+//     byte* end = begin + code->instruction_size();
+//     disasm::Disassembler::Disassemble(stdout, begin, end);
+// #endif
+
+    CodeDesc desc;
+    assm.GetCode(&desc);
+    Handle<Code> code = isolate->factory()->NewCode(
+        desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+    F1 f = FUNCTION_CAST<F1>(code->entry());
+    int64_t res =
+       reinterpret_cast<int64_t>(CALL_GENERATED_CODE(f, 50, 0, 0, 0, 0));
+    CHECK_EQ(10160002L, res);
+  }
+}
 
 
 TEST(jump_tables1) {

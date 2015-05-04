@@ -3252,6 +3252,13 @@ void Simulator::DecodeTypeImmediate(Instruction* instr) {
     case BGTZ:
       do_branch = rs  > 0;
       break;
+    case BC:
+    case BALC:
+      // Unconditional branch.
+      if (instr->IsLinkingInstruction()) {
+        set_register(31, current_pc + kCompactBranchReturnOffset);
+      }
+      break;
     // ------------- Arithmetic instructions.
     case ADDI:
     case DADDI:
@@ -3411,6 +3418,13 @@ void Simulator::DecodeTypeImmediate(Instruction* instr) {
         next_pc = current_pc + 2 * Instruction::kInstrSize;
       }
       break;
+    // ------------- Compact branch instructions.
+    case BC:
+    case BALC: {
+      int32_t imm28  = (instr->Imm26Value() << 6) >> 4;  // Sign extend.
+      next_pc = current_pc + imm28 + Instruction::kInstrSize;
+      break;
+    }
     // ------------- Arithmetic instructions.
     case ADDI:
     case DADDI:

@@ -328,6 +328,7 @@ enum Opcode {
   SWR       =   ((5 << 3) + 6) << kOpcodeShift,
 
   LWC1      =   ((6 << 3) + 1) << kOpcodeShift,
+  BC        =   ((6 << 3) + 2) << kOpcodeShift,
   LLD       =   ((6 << 3) + 4) << kOpcodeShift,
   LDC1      =   ((6 << 3) + 5) << kOpcodeShift,
   BEQZC     =   ((6 << 3) + 6) << kOpcodeShift,
@@ -336,6 +337,7 @@ enum Opcode {
   PREF      =   ((6 << 3) + 3) << kOpcodeShift,
 
   SWC1      =   ((7 << 3) + 1) << kOpcodeShift,
+  BALC      =   ((7 << 3) + 2) << kOpcodeShift,
   SCD       =   ((7 << 3) + 4) << kOpcodeShift,
   SDC1      =   ((7 << 3) + 5) << kOpcodeShift,
   BNEZC     =   ((7 << 3) + 6) << kOpcodeShift,
@@ -908,7 +910,8 @@ class Instruction {
   }
 
   inline int32_t Imm26Value() const {
-    DCHECK(InstructionType() == kJumpType);
+    DCHECK(InstructionType() == kJumpType ||
+           InstructionType() == kImmediateType);
     return Bits(kImm26Shift + kImm26Bits - 1, kImm26Shift);
   }
 
@@ -945,6 +948,7 @@ const int kCArgsSlotsSize = kCArgSlotCount * Instruction::kInstrSize * 2;
 
 const int kInvalidStackOffset = -1;
 const int kBranchReturnOffset = 2 * Instruction::kInstrSize;
+const int kCompactBranchReturnOffset = 1 * Instruction::kInstrSize;
 
 } }   // namespace v8::internal
 
