@@ -887,7 +887,7 @@ void Assembler::bind_to(Label* L, int pos) {
 void Assembler::next_trampoline(Label* L) {
   DCHECK(L->is_trampoline_assigned());
   int link = trampoline_target_at(L->trampoline_pos());
-  if (link == kEndOfChain) {
+  if (link == L->trampoline_pos()) {
     L->UnuseTrampoline();
   } else {
     IB_PRINTF("next_trampoline = %x\n", link);
@@ -1081,12 +1081,18 @@ uint64_t Assembler::trampoline_address(Label* L ) {
     IB_PRINTF("trampoline_address: Label %p, trampoline address target_pos %lx\n ", (void *) L, target_pos);
     L->trampoline_assign(pc_offset());
 
-    DCHECK(target_pos - frame_address > 0);
+    DCHECK(target_pos - frame_address >= 0);
     return target_pos - frame_address;
   }
   else {
     L->trampoline_assign(pc_offset());
-    return kEndOfJumpChain;
+    
+    target_pos = pc_offset();
+    target_pos = buffer_addr + target_pos;
+    frame_address = target_pos & ~kImm28Mask;
+
+    DCHECK(target_pos - frame_address >= 0);
+    return target_pos - frame_address;
   }
 
 }
