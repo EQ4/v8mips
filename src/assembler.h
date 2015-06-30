@@ -252,25 +252,30 @@ class Label {
   INLINE(Label()) {
     Unuse();
     UnuseNear();
+    UnuseTrampoline();
   }
 
   INLINE(~Label()) {
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
+    //DCHECK(!is_trampoline_assigned());
   }
 
   INLINE(void Unuse()) { pos_ = 0; }
   INLINE(void UnuseNear()) { near_link_pos_ = 0; }
+  INLINE(void UnuseTrampoline()) { trampoline_pos_ = 0; }
 
   INLINE(bool is_bound() const) { return pos_ <  0; }
-  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0; }
+  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0; }
   INLINE(bool is_linked() const) { return pos_ >  0; }
   INLINE(bool is_near_linked() const) { return near_link_pos_ > 0; }
+  INLINE(bool is_trampoline_assigned() const) { return trampoline_pos_ != 0; }
 
   // Returns the position of bound or linked labels. Cannot be used
   // for unused labels.
   int pos() const;
   int near_link_pos() const { return near_link_pos_ - 1; }
+  int trampoline_pos() const { return trampoline_pos_ - 1; }
 
  private:
   // pos_ encodes both the binding state (via its sign)
@@ -283,6 +288,8 @@ class Label {
 
   // Behaves like |pos_| in the "> 0" case, but for near jumps to this label.
   int near_link_pos_;
+
+  int trampoline_pos_;
 
   void bind_to(int pos)  {
     pos_ = -pos - 1;
@@ -297,16 +304,19 @@ class Label {
       DCHECK(is_linked());
     }
   }
+  void trampoline_assign(int pos) {
+    trampoline_pos_ = pos + 1;
+  }
 
   friend class Assembler;
   friend class Displacement;
   friend class RegExpMacroAssemblerIrregexp;
 
-#if V8_TARGET_ARCH_ARM64
+//#if V8_TARGET_ARCH_ARM64
   // On ARM64, the Assembler keeps track of pointers to Labels to resolve
   // branches to distant targets. Copying labels would confuse the Assembler.
   DISALLOW_COPY_AND_ASSIGN(Label);  // NOLINT
-#endif
+//#endif
 };
 
 

@@ -481,6 +481,7 @@ class Assembler : public AssemblerBase {
     return o >> 2;
   }
   uint64_t jump_address(Label* L);
+  uint64_t trampoline_address(Label* L );
 
   // Puts a labels target address at the given position.
   // The high 8 bits are set to zero.
@@ -1243,6 +1244,7 @@ class Assembler : public AssemblerBase {
 
   // Decode branch instruction at pos and return branch target pos.
   int target_at(int pos, bool is_internal);
+  int trampoline_target_at(int pos);
 
   // Patch branch instruction at pos to branch to given branch target pos.
   void target_at_put(int pos, int target_pos, bool is_internal);
@@ -1252,6 +1254,8 @@ class Assembler : public AssemblerBase {
 
   // Record reloc info for current pc_.
   void RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data = 0);
+
+  void RecordTrampolineRelocInfo(int pos);
 
   // Block the emission of the trampoline pool before pc_offset.
   void BlockTrampolinePoolBefore(int pc_offset) {
@@ -1419,6 +1423,9 @@ class Assembler : public AssemblerBase {
   void bind_to(Label* L, int pos);
   void next(Label* L, bool is_internal);
 
+  void bind_to_trampoline(Label* l, int pos);
+  void next_trampoline(Label* l);
+
   // One trampoline consists of:
   // - space for trampoline slots,
   // - space for labels.
@@ -1470,7 +1477,6 @@ class Assembler : public AssemblerBase {
     int free_slot_count_;
   };
 
-  int32_t get_trampoline_entry(int32_t pos);
   int unbound_labels_count_;
   // After trampoline is emitted, long branches are used in generated code for
   // the forward branches whose target offsets could be beyond reach of branch
@@ -1486,6 +1492,7 @@ class Assembler : public AssemblerBase {
   // labels.
   std::set<int64_t> internal_reference_positions_;
 
+  std::set<Label *> unbound_labels_;
   Trampoline trampoline_;
   bool internal_trampoline_exception_;
 

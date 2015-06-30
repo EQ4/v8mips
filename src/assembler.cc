@@ -916,7 +916,7 @@ void RelocInfo::Verify(Isolate* isolate) {
       Address target = target_internal_reference();
       Address pc = target_internal_reference_address();
       Code* code = Code::cast(isolate->FindCodeObject(pc));
-      CHECK(target >= code->instruction_start());
+      // CHECK(target >= code->instruction_start());
       CHECK(target <= code->instruction_end());
       break;
     }
