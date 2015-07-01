@@ -167,15 +167,6 @@ RegExpMacroAssemblerMIPS::~RegExpMacroAssemblerMIPS() {
   check_preempt_label_.Unuse();
   stack_overflow_label_.Unuse();
   internal_failure_label_.Unuse();
-  entry_label_.UnuseTrampoline();
-  start_label_.UnuseTrampoline();
-  success_label_.UnuseTrampoline();
-  backtrack_label_.UnuseTrampoline();
-  exit_label_.UnuseTrampoline();
-  check_preempt_label_.UnuseTrampoline();
-  stack_overflow_label_.UnuseTrampoline();
-  internal_failure_label_.UnuseTrampoline();
-
 }
 
 

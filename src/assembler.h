@@ -258,19 +258,17 @@ class Label {
   INLINE(~Label()) {
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
-    //DCHECK(!is_trampoline_assigned());
+    DCHECK(!is_trampoline_assigned());
   }
 
-  INLINE(void Unuse()) { pos_ = 0; }
+  INLINE(void Unuse()) { pos_ = 0; trampoline_pos_ = 0; }
   INLINE(void UnuseNear()) { near_link_pos_ = 0; }
-  INLINE(void UnuseTrampoline()) { trampoline_pos_ = 0; }
 
-  INLINE(bool is_bound() const) { return pos_ <  0; }
+  INLINE(bool is_bound() const) { return pos_ <  0;  }
   INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0; }
-  INLINE(bool is_linked() const) { return pos_ >  0; }
+  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ != 0);  }
   INLINE(bool is_near_linked() const) { return near_link_pos_ > 0; }
-  INLINE(bool is_trampoline_assigned() const) { return trampoline_pos_ != 0; }
-
+  
   // Returns the position of bound or linked labels. Cannot be used
   // for unused labels.
   int pos() const;
@@ -292,10 +290,12 @@ class Label {
   int trampoline_pos_;
 
   void bind_to(int pos)  {
+    DCHECK(pos >= 0);
     pos_ = -pos - 1;
     DCHECK(is_bound());
   }
   void link_to(int pos, Distance distance = kFar) {
+    DCHECK(pos >= 0);
     if (distance == kNear) {
       near_link_pos_ = pos + 1;
       DCHECK(is_near_linked());
@@ -307,6 +307,11 @@ class Label {
   void trampoline_assign(int pos) {
     trampoline_pos_ = pos + 1;
   }
+
+  INLINE(bool is_trampoline_assigned() const) { return trampoline_pos_ != 0; }
+  INLINE(void UnuseTrampoline()) { trampoline_pos_ = 0;  }
+  INLINE(void Unlink()) { pos_ = 0;  }
+  INLINE(bool is_linked_to_jump() const) { return (pos_ >  0);  }
 
   friend class Assembler;
   friend class Displacement;
