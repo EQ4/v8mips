@@ -811,7 +811,6 @@ void Assembler::bind_to_trampoline(Label* L, int pos) {
     if (is_internal) {
       target_at_put(fixup_pos, pos, is_internal);
     } else if (IsBranch(instr)) {
-      DCHECK(dist <= kMaxBranchOffset);
       target_at_put(fixup_pos, pos, false);
     } else {
       DCHECK(IsJ(instr) || IsJal(instr) || IsLui(instr) ||
