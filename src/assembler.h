@@ -252,13 +252,12 @@ class Label {
   INLINE(Label()) {
     Unuse();
     UnuseNear();
-    UnuseTrampoline();
   }
 
   INLINE(~Label()) {
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
-    DCHECK(!is_trampoline_assigned());
+    DCHECK(!is_linked_to_trampoline());
   }
 
   INLINE(void Unuse()) { pos_ = 0; trampoline_pos_ = 0; }
@@ -304,24 +303,24 @@ class Label {
       DCHECK(is_linked());
     }
   }
-  void trampoline_assign(int pos) {
+  void link_to_trampoline(int pos) {
     trampoline_pos_ = pos + 1;
   }
 
-  INLINE(bool is_trampoline_assigned() const) { return trampoline_pos_ != 0; }
-  INLINE(void UnuseTrampoline()) { trampoline_pos_ = 0;  }
-  INLINE(void Unlink()) { pos_ = 0;  }
+  INLINE(bool is_linked_to_trampoline() const) { return trampoline_pos_ != 0; }
   INLINE(bool is_linked_to_jump() const) { return (pos_ >  0);  }
-
+  INLINE(void unlink_trampoline()) { trampoline_pos_ = 0;  }
+  INLINE(void unlink_jump()) { pos_ = 0;  }
+  
   friend class Assembler;
   friend class Displacement;
   friend class RegExpMacroAssemblerIrregexp;
 
-//#if V8_TARGET_ARCH_ARM64
-  // On ARM64, the Assembler keeps track of pointers to Labels to resolve
+#if V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS64
+  // On ARM64 and MIPS64, the Assembler keeps track of pointers to Labels to resolve
   // branches to distant targets. Copying labels would confuse the Assembler.
   DISALLOW_COPY_AND_ASSIGN(Label);  // NOLINT
-//#endif
+#endif
 };
 
 
