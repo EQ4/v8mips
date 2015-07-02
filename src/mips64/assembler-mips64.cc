@@ -1478,7 +1478,7 @@ void Assembler::bnezc(Register rs, int32_t offset) {
 
 
 void Assembler::j(int64_t target) {
-#if 0 // DEBUG
+#if DEBUG
   // Get pc of delay slot.
   if (target != kEndOfJumpChain) {
     uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
@@ -3139,40 +3139,6 @@ void Assembler::emit_code_stub_address(Code* stub) {
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
   // We do not try to reuse pool constants.
   RelocInfo rinfo(pc_, rmode, data, NULL);
-  if (rmode >= RelocInfo::JS_RETURN && rmode <= RelocInfo::DEBUG_BREAK_SLOT) {
-    // Adjust code for new modes.
-    DCHECK(RelocInfo::IsDebugBreakSlot(rmode)
-           || RelocInfo::IsJSReturn(rmode)
-           || RelocInfo::IsComment(rmode)
-           || RelocInfo::IsPosition(rmode));
-    // These modes do not need an entry in the constant pool.
-  }
-  if (!RelocInfo::IsNone(rinfo.rmode())) {
-    // Don't record external references unless the heap will be serialized.
-    if (rmode == RelocInfo::EXTERNAL_REFERENCE &&
-        !serializer_enabled() && !emit_debug_code()) {
-      return;
-    }
-    DCHECK(buffer_space() >= kMaxRelocSize);  // Too late to grow buffer here.
-    if (rmode == RelocInfo::CODE_TARGET_WITH_ID) {
-      RelocInfo reloc_info_with_ast_id(pc_,
-                                       rmode,
-                                       RecordedAstId().ToInt(),
-                                       NULL);
-      ClearRecordedAstId();
-      reloc_info_writer.Write(&reloc_info_with_ast_id);
-    } else {
-      reloc_info_writer.Write(&rinfo);
-    }
-  }
-}
-
-
-void Assembler::RecordTrampolineRelocInfo(int pos) {
-  byte* pc_ = buffer_ + pos;
-  RelocInfo::Mode rmode = RelocInfo::INTERNAL_REFERENCE_ENCODED;
-  // We do not try to reuse pool constants.
-  RelocInfo rinfo(pc_, rmode, 0, NULL);
   if (rmode >= RelocInfo::JS_RETURN && rmode <= RelocInfo::DEBUG_BREAK_SLOT) {
     // Adjust code for new modes.
     DCHECK(RelocInfo::IsDebugBreakSlot(rmode)

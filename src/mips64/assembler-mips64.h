@@ -1255,8 +1255,6 @@ class Assembler : public AssemblerBase {
   // Record reloc info for current pc_.
   void RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data = 0);
 
-  void RecordTrampolineRelocInfo(int pos);
-
   // Block the emission of the trampoline pool before pc_offset.
   void BlockTrampolinePoolBefore(int pc_offset) {
     if (no_trampoline_pool_before_ < pc_offset)
