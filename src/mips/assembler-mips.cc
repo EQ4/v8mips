@@ -300,7 +300,6 @@ Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
   last_bound_pos_ = 0;
 
   trampoline_emitted_ = FLAG_force_long_branches;
-  unbound_labels_count_ = 0;
   block_buffer_growth_ = false;
 
   ClearRecordedAstId();
@@ -698,6 +697,44 @@ int Assembler::target_at(int pos, bool is_internal) {
 }
 
 
+// Returns the offset from the beggining of buffer
+int Assembler::trampoline_target_at(int pos) {
+  // Instr instr = instr_at(pos);
+  // DCHECK(IsJ(instr) || IsJal(instr));
+  // int32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
+  // if (imm28 == kEndOfJumpChain) {
+  //   // EndOfChain sentinel is returned directly, not relative to pc or pos.
+  //   return kEndOfChain;
+  // } else {
+  //   uint64_t frame_address = (uint64_t) buffer_;
+  //   frame_address += pos;//reinterpret_cast<uint64_t>(buffer_ + pos);
+  //   frame_address &= ~kImm28Mask;
+  //   uint64_t buffer_start = (uint64_t) buffer_;
+
+  //   int result = static_cast<int>(frame_address + imm28 - buffer_start);
+  //   DCHECK(result >= 0);
+  //   return result;
+  // }
+  Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
+  Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
+  DCHECK(IsLui(instr_lui));
+  DCHECK(IsOri(instr_ori));
+  uint32_t imm = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
+  imm |= (instr_ori & static_cast<int32_t>(kImm16Mask));
+
+  if (imm == kEndOfJumpChain) {
+    // EndOfChain sentinel is returned directly, not relative to pc or pos.
+    return kEndOfChain;
+  } else {
+    uint32_t buffer_start = (uint32_t) buffer_;
+
+    DCHECK(imm >= buffer_start);
+    return imm - buffer_start;
+  }
+
+}
+
+
 void Assembler::target_at_put(int32_t pos, int32_t target_pos,
                               bool is_internal) {
   Instr instr = instr_at(pos);
@@ -751,37 +788,63 @@ void Assembler::print(Label* L) {
   } else if (L->is_bound()) {
     PrintF("bound label to %d\n", L->pos());
   } else if (L->is_linked()) {
-    Label l = *L;
-    PrintF("unbound label");
-    while (l.is_linked()) {
-      PrintF("@ %d ", l.pos());
-      Instr instr = instr_at(l.pos());
-      if ((instr & ~kImm16Mask) == 0) {
-        PrintF("value\n");
-      } else {
-        PrintF("%d\n", instr);
-      }
-      next(&l, internal_reference_positions_.find(l.pos()) !=
-                   internal_reference_positions_.end());
-    }
+    // Label l = *L;
+    // PrintF("unbound label");
+    // while (l.is_linked()) {
+    //   PrintF("@ %d ", l.pos());
+    //   Instr instr = instr_at(l.pos());
+    //   if ((instr & ~kImm16Mask) == 0) {
+    //     PrintF("value\n");
+    //   } else {
+    //     PrintF("%d\n", instr);
+    //   }
+    //   next(&l, internal_reference_positions_.find(l.pos()) !=
+    //                internal_reference_positions_.end());
+    // }
   } else {
     PrintF("label in inconsistent state (pos = %d)\n", L->pos_);
   }
 }
 
 
+void Assembler::bind_to_trampoline(Label* L, int pos) {
+  DCHECK(0 <= pos && pos <= pc_offset());  // Must have valid binding position.
+  bool is_internal = false;
+
+  while (L->is_linked_to_jump()) {
+    int fixup_pos = L->pos();
+    is_internal = internal_reference_positions_.find(fixup_pos) !=
+                  internal_reference_positions_.end();
+    next(L, is_internal);  // Call next before overwriting link with target at
+                           // fixup_pos.
+    Instr instr = instr_at(fixup_pos);
+    if (is_internal) {
+      target_at_put(fixup_pos, pos, is_internal);
+    } else if (IsBranch(instr)) {
+      target_at_put(fixup_pos, pos, false);
+    } else {
+      DCHECK(IsJ(instr) || IsJal(instr) || IsLui(instr) ||
+             IsEmittedConstant(instr));
+      target_at_put(fixup_pos, pos, false);
+    }
+  }
+}
+
+
 void Assembler::bind_to(Label* L, int pos) {
   DCHECK(0 <= pos && pos <= pc_offset());  // Must have valid binding position.
-  int32_t trampoline_pos = kInvalidSlotPos;
   bool is_internal = false;
-  if (L->is_linked() && !trampoline_emitted_) {
-    unbound_labels_count_--;
+  if (L->is_linked_to_jump() && !trampoline_emitted_) {
+    DCHECK(unbound_labels_.find(L) != unbound_labels_.end());
+    unbound_labels_.erase(L);
     next_buffer_check_ += kTrampolineSlotsSize;
   }
 
-  while (L->is_linked()) {
+  DCHECK(unbound_labels_.find(L) == unbound_labels_.end());
+
+  while (L->is_linked_to_jump()) {
     int32_t fixup_pos = L->pos();
-    int32_t dist = pos - fixup_pos;
+    DCHECK((pos - fixup_pos) <= kMaxBranchOffset);
     is_internal = internal_reference_positions_.find(fixup_pos) !=
                   internal_reference_positions_.end();
     next(L, is_internal);  // Call next before overwriting link with target at
@@ -790,27 +853,38 @@ void Assembler::bind_to(Label* L, int pos) {
     if (is_internal) {
       target_at_put(fixup_pos, pos, is_internal);
     } else if (!is_internal && IsBranch(instr)) {
-      if (dist > kMaxBranchOffset) {
-        if (trampoline_pos == kInvalidSlotPos) {
-          trampoline_pos = get_trampoline_entry(fixup_pos);
-          CHECK(trampoline_pos != kInvalidSlotPos);
-        }
-        DCHECK((trampoline_pos - fixup_pos) <= kMaxBranchOffset);
-        target_at_put(fixup_pos, trampoline_pos, false);
-        fixup_pos = trampoline_pos;
-        dist = pos - fixup_pos;
-      }
       target_at_put(fixup_pos, pos, false);
     } else {
       target_at_put(fixup_pos, pos, false);
     }
   }
+
+  while (L->is_linked_to_trampoline()) {
+    int fixup_pos = L->trampoline_pos();
+
+    next_trampoline(L);
+
+    target_at_put(fixup_pos, pos, false);
+  }
+
   L->bind_to(pos);
 
   // Keep track of the last bound label so we don't eliminate any instructions
   // before a bound label.
   if (pos > last_bound_pos_)
     last_bound_pos_ = pos;
+}
+
+
+void Assembler::next_trampoline(Label* L) {
+  DCHECK(L->is_linked_to_trampoline());
+  int link = trampoline_target_at(L->trampoline_pos());
+  if (link == L->trampoline_pos()) {
+    L->unlink_trampoline();
+  } else {
+    DCHECK(link >= 0);
+    L->link_to_trampoline(link);
+  }
 }
 
 
@@ -821,10 +895,10 @@ void Assembler::bind(Label* L) {
 
 
 void Assembler::next(Label* L, bool is_internal) {
-  DCHECK(L->is_linked());
+  DCHECK(L->is_linked_to_jump());
   int link = target_at(L->pos(), is_internal);
   if (link == kEndOfChain) {
-    L->Unuse();
+    L->unlink_jump();
   } else {
     DCHECK(link >= 0);
     L->link_to(link);
@@ -983,20 +1057,29 @@ void Assembler::GenInstrJump(Opcode opcode,
 }
 
 
-// Returns the next free trampoline entry.
-int32_t Assembler::get_trampoline_entry(int32_t pos) {
-  int32_t trampoline_entry = kInvalidSlotPos;
+uint32_t Assembler::trampoline_address(Label* L ) {
+  DCHECK(!L->is_bound());
+  DCHECK(!L->is_unused());
+  uint32_t target_pos;
+  uint32_t buffer_addr = (uint32_t) buffer_;
 
-  if (!internal_trampoline_exception_) {
-    if (trampoline_.start() > pos) {
-     trampoline_entry = trampoline_.take_slot();
-    }
+  if (L->is_linked_to_trampoline()) {
+    target_pos = L->trampoline_pos();
+    target_pos = buffer_addr + target_pos;
 
-    if (kInvalidSlotPos == trampoline_entry) {
-      internal_trampoline_exception_ = true;
-    }
+    L->link_to_trampoline(pc_offset());
+
+    return target_pos;
   }
-  return trampoline_entry;
+  else {
+    L->link_to_trampoline(pc_offset());
+    
+    target_pos = pc_offset();
+    target_pos = buffer_addr + target_pos;
+
+    return target_pos;
+  }
+
 }
 
 
@@ -1006,7 +1089,7 @@ uint32_t Assembler::jump_address(Label* L) {
   if (L->is_bound()) {
     target_pos = L->pos();
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();  // L's link.
       L->link_to(pc_offset());
     } else {
@@ -1028,13 +1111,13 @@ int32_t Assembler::branch_offset(Label* L, bool jump_elimination_allowed) {
   if (L->is_bound()) {
     target_pos = L->pos();
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();
       L->link_to(pc_offset());
     } else {
       L->link_to(pc_offset());
       if (!trampoline_emitted_) {
-        unbound_labels_count_++;
+        unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
@@ -1055,13 +1138,13 @@ int32_t Assembler::branch_offset_compact(Label* L,
   if (L->is_bound()) {
     target_pos = L->pos();
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();
       L->link_to(pc_offset());
     } else {
       L->link_to(pc_offset());
       if (!trampoline_emitted_) {
-        unbound_labels_count_++;
+        unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
@@ -1082,13 +1165,13 @@ int32_t Assembler::branch_offset21(Label* L, bool jump_elimination_allowed) {
   if (L->is_bound()) {
     target_pos = L->pos();
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();
       L->link_to(pc_offset());
     } else {
       L->link_to(pc_offset());
       if (!trampoline_emitted_) {
-        unbound_labels_count_++;
+        unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
@@ -1110,13 +1193,13 @@ int32_t Assembler::branch_offset21_compact(Label* L,
   if (L->is_bound()) {
     target_pos = L->pos();
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();
       L->link_to(pc_offset());
     } else {
       L->link_to(pc_offset());
       if (!trampoline_emitted_) {
-        unbound_labels_count_++;
+        unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
@@ -1137,7 +1220,7 @@ void Assembler::label_at_put(Label* L, int at_offset) {
     target_pos = L->pos();
     instr_at_put(at_offset, target_pos + (Code::kHeaderSize - kHeapObjectTag));
   } else {
-    if (L->is_linked()) {
+    if (L->is_linked_to_jump()) {
       target_pos = L->pos();  // L's link.
       int32_t imm18 = target_pos - at_offset;
       DCHECK((imm18 & 3) == 0);
@@ -1148,7 +1231,7 @@ void Assembler::label_at_put(Label* L, int at_offset) {
       target_pos = kEndOfChain;
       instr_at_put(at_offset, 0);
       if (!trampoline_emitted_) {
-        unbound_labels_count_++;
+        unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
       }
     }
@@ -2874,8 +2957,8 @@ void Assembler::CheckTrampolinePool() {
   }
 
   DCHECK(!trampoline_emitted_);
-  DCHECK(unbound_labels_count_ >= 0);
-  if (unbound_labels_count_ > 0) {
+  std::set<Label *>::iterator unbound_labels_iterator;
+  if (unbound_labels_.size() > 0) {
     // First we emit jump (2 instructions), then we emit trampoline pool.
     { BlockTrampolinePoolScope block_trampoline_pool(this);
       Label after_pool;
@@ -2883,9 +2966,12 @@ void Assembler::CheckTrampolinePool() {
       nop();
 
       int pool_start = pc_offset();
-      for (int i = 0; i < unbound_labels_count_; i++) {
+      for (unbound_labels_iterator = unbound_labels_.begin(); unbound_labels_iterator != unbound_labels_.end();) {
         uint32_t imm32;
-        imm32 = jump_address(&after_pool);
+        Label* L = *unbound_labels_iterator;
+        DCHECK(L->is_linked_to_jump());
+        imm32 = trampoline_address(L);
+        int trampoline_offset = pc_offset();
         { BlockGrowBufferScope block_buf_growth(this);
           // Buffer growth (and relocation) must be blocked for internal
           // references until associated instructions are emitted and available
@@ -2894,16 +2980,19 @@ void Assembler::CheckTrampolinePool() {
           lui(at, (imm32 & kHiMask) >> kLuiShift);
           ori(at, at, (imm32 & kImm16Mask));
         }
+
+        bind_to_trampoline(*unbound_labels_iterator, trampoline_offset);
+
         jr(at);
         nop();
+
+        unbound_labels_.erase(unbound_labels_iterator++);
       }
       bind(&after_pool);
       trampoline_ = Trampoline(pool_start, unbound_labels_count_);
 
-      trampoline_emitted_ = true;
-      // As we are only going to emit trampoline once, we need to prevent any
-      // further emission.
-      next_buffer_check_ = kMaxInt;
+      next_buffer_check_ = pc_offset() +
+          kMaxBranchOffset - kTrampolineSlotsSize * 16;
     }
   } else {
     // Number of branches to unbound label at this point is zero, so we can

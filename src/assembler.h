@@ -316,7 +316,7 @@ class Label {
   friend class Displacement;
   friend class RegExpMacroAssemblerIrregexp;
 
-#if V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS64
+#if V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_MIPS
   // On ARM64 and MIPS64, the Assembler keeps track of pointers to Labels to resolve
   // branches to distant targets. Copying labels would confuse the Assembler.
   DISALLOW_COPY_AND_ASSIGN(Label);  // NOLINT

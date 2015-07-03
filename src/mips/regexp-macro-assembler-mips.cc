@@ -934,7 +934,7 @@ void RegExpMacroAssemblerMIPS::PushBacktrack(Label* label) {
   } else {
     Assembler::BlockTrampolinePoolScope block_trampoline_pool(masm_);
     Label after_constant;
-    __ Branch(&after_constant);
+    __ BranchShort(&after_constant);
     int offset = masm_->pc_offset();
     int cp_offset = offset + Code::kHeaderSize - kHeapObjectTag;
     __ emit(0);

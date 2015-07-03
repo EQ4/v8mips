@@ -329,16 +329,16 @@ bool LCodeGen::GenerateJumpTable() {
     Label needs_frame, call_deopt_entry;
 
     Comment(";;; -------------------- Jump table --------------------");
-    Address base = jump_table_[0].address;
+    Address base = jump_table_[0]->address;
 
     Register entry_offset = t9;
 
     int length = jump_table_.length();
     for (int i = 0; i < length; i++) {
-      Deoptimizer::JumpTableEntry* table_entry = &jump_table_[i];
+      Deoptimizer::JumpTableEntry* table_entry = jump_table_[i];
       __ bind(&table_entry->label);
 
-      DCHECK(table_entry->bailout_type == jump_table_[0].bailout_type);
+      DCHECK(table_entry->bailout_type == jump_table_[0]->bailout_type);
       Address entry = table_entry->address;
       DeoptComment(table_entry->deopt_info);
 
@@ -824,16 +824,17 @@ void LCodeGen::DeoptimizeIf(Condition condition, LInstruction* instr,
     __ Call(entry, RelocInfo::RUNTIME_ENTRY, condition, src1, src2);
     info()->LogDeoptCallPosition(masm()->pc_offset(), deopt_info.inlining_id);
   } else {
-    Deoptimizer::JumpTableEntry table_entry(entry, deopt_info, bailout_type,
-                                            !frame_is_built_);
+    Deoptimizer::JumpTableEntry* table_entry =
+        new (zone()) Deoptimizer::JumpTableEntry(
+            entry, deopt_info, bailout_type, !frame_is_built_);
     // We often have several deopts to the same entry, reuse the last
     // jump entry if this is the case.
     if (FLAG_trace_deopt || isolate()->cpu_profiler()->is_profiling() ||
         jump_table_.is_empty() ||
-        !table_entry.IsEquivalentTo(jump_table_.last())) {
+        !table_entry->IsEquivalentTo(*jump_table_.last())) {
       jump_table_.Add(table_entry, zone());
     }
-    __ Branch(&jump_table_.last().label, condition, src1, src2);
+    __ Branch(&jump_table_.last()->label, condition, src1, src2);
   }
 }
 
