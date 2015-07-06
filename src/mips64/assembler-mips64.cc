@@ -1478,7 +1478,7 @@ void Assembler::bnezc(Register rs, int32_t offset) {
 
 
 void Assembler::j(int64_t target) {
-#if DEBUG
+#if 0//DEBUG
   // Get pc of delay slot.
   if (target != kEndOfJumpChain) {
     uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
