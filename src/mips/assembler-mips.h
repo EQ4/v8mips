@@ -489,6 +489,7 @@ class Assembler : public AssemblerBase {
   }
   uint32_t jump_address(Label* L);
   uint32_t trampoline_address(Label* L );
+  uint32_t reference_address(Label* L );
 
   // Puts a labels target address at the given position.
   // The high 8 bits are set to zero.
@@ -894,6 +895,8 @@ class Assembler : public AssemblerBase {
   void bitswap(Register rd, Register rt);
   void align(Register rd, Register rs, Register rt, uint8_t bp);
 
+  void ld_label_offset(Register dst, Label* label);
+
   // --------Coprocessor-instructions----------------
 
   // Load, store, and move.
@@ -1199,9 +1202,11 @@ class Assembler : public AssemblerBase {
   // Decode branch instruction at pos and return branch target pos.
   int target_at(int pos, bool is_internal);
   int trampoline_target_at(int pos);
+  int reference_target_at(int pos);
 
   // Patch branch instruction at pos to branch to given branch target pos.
   void target_at_put(int pos, int target_pos, bool is_internal);
+  void reference_target_at_put(int pos, int target_pos);
 
   // Say if we need to relocate with this mode.
   bool MustUseReg(RelocInfo::Mode rmode);
@@ -1380,6 +1385,7 @@ class Assembler : public AssemblerBase {
   void bind_to_trampoline(Label* l, int pos);
   void next_trampoline(Label* l);
 
+  void next_reference(Label* l);
 
   // One trampoline consists of:
   // - space for trampoline slots,

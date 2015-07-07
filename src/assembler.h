@@ -258,14 +258,15 @@ class Label {
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
     DCHECK(!is_linked_to_trampoline());
+    DCHECK(!is_linked_to_reference());
   }
 
-  INLINE(void Unuse()) { pos_ = 0; trampoline_pos_ = 0; }
+  INLINE(void Unuse()) { pos_ = 0; trampoline_pos_ = 0; reference_pos_ = 0; }
   INLINE(void UnuseNear()) { near_link_pos_ = 0; }
 
   INLINE(bool is_bound() const) { return pos_ <  0;  }
-  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0; }
-  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ != 0);  }
+  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ == 0; }
+  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ != 0) || (pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ != 0);  }
   INLINE(bool is_near_linked() const) { return near_link_pos_ > 0; }
   
   // Returns the position of bound or linked labels. Cannot be used
@@ -273,6 +274,7 @@ class Label {
   int pos() const;
   int near_link_pos() const { return near_link_pos_ - 1; }
   int trampoline_pos() const { return trampoline_pos_ - 1; }
+  int reference_pos() const { return reference_pos_ - 1; }
 
  private:
   // pos_ encodes both the binding state (via its sign)
@@ -287,6 +289,8 @@ class Label {
   int near_link_pos_;
 
   int trampoline_pos_;
+
+  int reference_pos_;
 
   void bind_to(int pos)  {
     DCHECK(pos >= 0);
@@ -306,11 +310,16 @@ class Label {
   void link_to_trampoline(int pos) {
     trampoline_pos_ = pos + 1;
   }
+  void link_to_reference(int pos) {
+    reference_pos_ = pos + 1;
+  }
 
   INLINE(bool is_linked_to_trampoline() const) { return trampoline_pos_ != 0; }
   INLINE(bool is_linked_to_jump() const) { return (pos_ >  0);  }
+  INLINE(bool is_linked_to_reference() const) { return (reference_pos_ > 0); }
   INLINE(void unlink_trampoline()) { trampoline_pos_ = 0;  }
   INLINE(void unlink_jump()) { pos_ = 0;  }
+  INLINE(void unlink_reference()) { reference_pos_ = 0; }
   
   friend class Assembler;
   friend class Displacement;
