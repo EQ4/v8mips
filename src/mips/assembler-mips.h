@@ -491,6 +491,8 @@ class Assembler : public AssemblerBase {
   uint32_t trampoline_address(Label* L );
   uint32_t reference_address(Label* L );
 
+  int32_t bound_label_branch_offset(Label * L);
+
   // Puts a labels target address at the given position.
   // The high 8 bits are set to zero.
   void label_at_put(Label* L, int at_offset);
@@ -1183,6 +1185,7 @@ class Assembler : public AssemblerBase {
   static bool IsEmittedConstant(Instr instr);
 
   void CheckTrampolinePool();
+  void CheckBoundTrampolinePool();
 
   void PatchConstantPoolAccessInstruction(int pc_offset, int offset,
                                           ConstantPoolEntry::Access access,
@@ -1192,6 +1195,7 @@ class Assembler : public AssemblerBase {
   }
 
  protected:
+  void LabelDestroyed(Label * l);
   // Relocation for a type-recording IC has the AST id added to it.  This
   // member variable is a way to pass the information from the call site to
   // the relocation info.
@@ -1280,6 +1284,7 @@ class Assembler : public AssemblerBase {
   static const int kCheckConstInterval = kCheckConstIntervalInst * kInstrSize;
 
   int next_buffer_check_;  // pc offset of next buffer check.
+  int bound_next_buffer_check_; // pc offset for backward next buffer check
 
   // Emission of the trampoline pool may be blocked in some code sequences.
   int trampoline_pool_blocked_nesting_;  // Block emission if this is not zero.
@@ -1385,6 +1390,9 @@ class Assembler : public AssemblerBase {
   void bind_to_trampoline(Label* l, int pos);
   void next_trampoline(Label* l);
 
+  void bind_bound_to_trampoline(Label* l, int pos);
+  void next_bound(Label* l, bool is_internal);
+
   void next_reference(Label* l);
 
   // One trampoline consists of:
@@ -1438,7 +1446,6 @@ class Assembler : public AssemblerBase {
     int free_slot_count_;
   };
 
-  int unbound_labels_count_;
   // If trampoline is emitted, generated code is becoming large. As this is
   // already a slow case which can possibly break our code generation for the
   // extreme case, we use this information to trigger different mode of
@@ -1454,7 +1461,8 @@ class Assembler : public AssemblerBase {
   std::set<int> internal_reference_positions_;
 
   std::set<Label *> unbound_labels_;
-  Trampoline trampoline_;
+  std::set<Label *> bound_labels_;
+  std::set<Label *> destroyed_bound_labels_;
   bool internal_trampoline_exception_;
 
   friend class RegExpMacroAssemblerMIPS;
@@ -1465,6 +1473,7 @@ class Assembler : public AssemblerBase {
   PositionsRecorder positions_recorder_;
   friend class PositionsRecorder;
   friend class EnsureSpace;
+  friend class Label;
 };
 
 

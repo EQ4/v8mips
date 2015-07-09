@@ -218,6 +218,12 @@ int Label::pos() const {
   return 0;
 }
 
+void Label::destroyLabel() {
+  if (assembler_) {
+    assembler_->LabelDestroyed(this);
+  }
+}
+
 
 // -----------------------------------------------------------------------------
 // Implementation of RelocInfoWriter and RelocIterator

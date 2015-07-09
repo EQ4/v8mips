@@ -250,11 +250,13 @@ class Label {
   };
 
   INLINE(Label()) {
+    assembler_ = NULL;
     Unuse();
     UnuseNear();
   }
 
   INLINE(~Label()) {
+    destroyLabel();
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
     DCHECK(!is_linked_to_trampoline());
@@ -266,7 +268,7 @@ class Label {
 
   INLINE(bool is_bound() const) { return pos_ <  0;  }
   INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ == 0; }
-  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ != 0) || (pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ != 0);  }
+  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ > 0) || (pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ != 0);  }
   INLINE(bool is_near_linked() const) { return near_link_pos_ > 0; }
   
   // Returns the position of bound or linked labels. Cannot be used
@@ -275,6 +277,15 @@ class Label {
   int near_link_pos() const { return near_link_pos_ - 1; }
   int trampoline_pos() const { return trampoline_pos_ - 1; }
   int reference_pos() const { return reference_pos_ - 1; }
+  int longjmp_pos() const { DCHECK(trampoline_pos_ < 0); return -trampoline_pos_ - 1; }
+
+  void Copy(Label * copy_to) {
+    copy_to->pos_ = pos_;
+    copy_to->trampoline_pos_ = trampoline_pos_;
+    copy_to->near_link_pos_ = near_link_pos_;
+    copy_to->reference_pos_ = reference_pos_;
+    copy_to->assembler_ = assembler_;
+  }
 
  private:
   // pos_ encodes both the binding state (via its sign)
@@ -291,6 +302,8 @@ class Label {
   int trampoline_pos_;
 
   int reference_pos_;
+
+  Assembler * assembler_;
 
   void bind_to(int pos)  {
     DCHECK(pos >= 0);
@@ -313,13 +326,26 @@ class Label {
   void link_to_reference(int pos) {
     reference_pos_ = pos + 1;
   }
+  void link_to_longjmp(int pos, Assembler * assembler = NULL) {
+    DCHECK(trampoline_pos_ <= 0);
+    DCHECK(pos_ < 0);
+    trampoline_pos_ = - pos - 1;
+    DCHECK(is_longjmp_required());
+    if (assembler != NULL) {
+      assembler_ = assembler;
+    }
+  }
 
-  INLINE(bool is_linked_to_trampoline() const) { return trampoline_pos_ != 0; }
+  void destroyLabel();
+
+  INLINE(bool is_linked_to_trampoline() const) { return trampoline_pos_ > 0; }
   INLINE(bool is_linked_to_jump() const) { return (pos_ >  0);  }
   INLINE(bool is_linked_to_reference() const) { return (reference_pos_ > 0); }
+  INLINE(bool is_longjmp_required() const) { return trampoline_pos_ < 0; }
   INLINE(void unlink_trampoline()) { trampoline_pos_ = 0;  }
   INLINE(void unlink_jump()) { pos_ = 0;  }
   INLINE(void unlink_reference()) { reference_pos_ = 0; }
+  INLINE(void unlink_longjmp()) { trampoline_pos_ = 0; }
   
   friend class Assembler;
   friend class Displacement;
