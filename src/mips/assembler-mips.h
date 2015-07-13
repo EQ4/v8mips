@@ -1194,6 +1194,8 @@ class Assembler : public AssemblerBase {
     UNREACHABLE();
   }
 
+  void ForceTrampolineGeneration();
+
  protected:
   void LabelDestroyed(Label * l);
   // Relocation for a type-recording IC has the AST id added to it.  This

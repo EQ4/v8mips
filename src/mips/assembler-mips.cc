@@ -310,12 +310,7 @@ Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
 void Assembler::GetCode(CodeDesc* desc) {
   DCHECK(pc_ <= reloc_info_writer.pos());  // No overlap.
   // Set up code descriptor.
-
-  // Resolving forward jump trampolines
-  DCHECK(trampoline_pool_blocked_nesting_ == 0);
-  DCHECK(pc_offset() >= no_trampoline_pool_before_);
-  bound_next_buffer_check_ = pc_offset();
-  CheckBoundTrampolinePool();
+  ForceTrampolineGeneration();
 
   desc->buffer = buffer_;
   desc->buffer_size = buffer_size_;
@@ -1220,6 +1215,7 @@ int32_t Assembler::branch_offset(Label* L, bool jump_elimination_allowed) {
       if (!trampoline_emitted_) {
         unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
+        bound_next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
     }
@@ -1254,6 +1250,7 @@ int32_t Assembler::branch_offset_compact(Label* L,
       if (!trampoline_emitted_) {
         unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
+        bound_next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
     }
@@ -1288,6 +1285,7 @@ int32_t Assembler::branch_offset21(Label* L, bool jump_elimination_allowed) {
       if (!trampoline_emitted_) {
         unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
+        bound_next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
     }
@@ -1323,6 +1321,7 @@ int32_t Assembler::branch_offset21_compact(Label* L,
       if (!trampoline_emitted_) {
         unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
+        bound_next_buffer_check_ -= kTrampolineSlotsSize;
       }
       return kEndOfChain;
     }
@@ -1355,6 +1354,7 @@ void Assembler::label_at_put(Label* L, int at_offset) {
       if (!trampoline_emitted_) {
         unbound_labels_.insert(L);
         next_buffer_check_ -= kTrampolineSlotsSize;
+        bound_next_buffer_check_ -= kTrampolineSlotsSize;
       }
     }
     L->link_to(at_offset);
@@ -3091,9 +3091,11 @@ int32_t Assembler::bound_label_branch_offset(Label * L) {
     bound_next_buffer_check_ = next_check;
   }
 
-  bound_next_buffer_check_ -= kTrampolineSlotsSize;
-
-  bound_labels_.insert(L);
+  if (bound_labels_.find(L) == bound_labels_.end()) {
+    bound_labels_.insert(L);
+    bound_next_buffer_check_ -= kTrampolineSlotsSize;
+    next_buffer_check_ -= kTrampolineSlotsSize;
+  }
 
   if (L->is_longjmp_required()) {
     target_pos = L->longjmp_pos();  // L's link.
@@ -3123,6 +3125,17 @@ void Assembler::LabelDestroyed(Label * l) {
     destroyed_bound_labels_.insert(copyLabel);
     bound_labels_.erase(l);
   }
+}
+
+
+void Assembler::ForceTrampolineGeneration() {
+  // Resolving forward jump trampolines
+  DCHECK(trampoline_pool_blocked_nesting_ == 0);
+  DCHECK(pc_offset() >= no_trampoline_pool_before_);
+  bound_next_buffer_check_ = pc_offset();
+  CheckBoundTrampolinePool();
+  DCHECK(bound_labels_.size() == 0);
+  DCHECK(destroyed_bound_labels_.size() == 0);
 }
 
 
