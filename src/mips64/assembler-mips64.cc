@@ -614,6 +614,18 @@ bool Assembler::IsAndImmediate(Instr instr) {
   return GetOpcodeField(instr) == ANDI;
 }
 
+
+int Assembler::reference_target_at(int pos) {
+  Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
+  Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
+  DCHECK(IsLui(instr_lui));
+  DCHECK(IsOri(instr_ori));
+  int32_t imm = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
+  imm |= (instr_ori & static_cast<int32_t>(kImm16Mask));
+
+  return imm;
+}
+
 // Returns the offset from the beggining of buffer
 int Assembler::trampoline_target_at(int pos) {
   Instr instr = instr_at(pos);
@@ -709,6 +721,24 @@ int Assembler::target_at(int pos, bool is_internal) {
       return pos - delta;
     }
   }
+}
+
+
+void Assembler::reference_target_at_put(int pos, int target_pos) {
+  Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
+  Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
+  DCHECK(IsLui(instr_lui));
+  DCHECK(IsOri(instr_ori));
+  uint32_t imm = target_pos;
+  DCHECK((target_pos) >= 0);
+
+  instr_lui &= ~kImm16Mask;
+  instr_ori &= ~kImm16Mask;
+
+  instr_at_put(pos + 0 * Assembler::kInstrSize,
+               instr_lui | ((imm & kHiMask) >> kLuiShift));
+  instr_at_put(pos + 1 * Assembler::kInstrSize,
+               instr_ori | (imm & kImm16Mask));
 }
 
 
@@ -859,12 +889,32 @@ void Assembler::bind_to(Label* L, int pos) {
     target_at_put(fixup_pos, pos, false);
   }
 
+  while (L->is_linked_to_reference() ) {
+    int fixup_pos = L->reference_pos();
+
+    next_reference(L);
+
+    reference_target_at_put(fixup_pos, pos + Code::kHeaderSize - kHeapObjectTag);
+  }
+
   L->bind_to(pos);
 
   // Keep track of the last bound label so we don't eliminate any instructions
   // before a bound label.
   if (pos > last_bound_pos_)
     last_bound_pos_ = pos;
+}
+
+
+void Assembler::next_reference(Label * L) {
+  DCHECK(L->is_linked_to_reference());
+  int link = reference_target_at(L->reference_pos());
+  if (link == kEndOfChain) {
+    L->unlink_reference();
+  } else {
+    DCHECK(link >= 0);
+    L->link_to_reference(link);
+  }
 }
 
 
@@ -1077,6 +1127,23 @@ uint64_t Assembler::trampoline_address(Label* L ) {
     return target_pos - frame_address;
   }
 
+}
+
+
+uint32_t Assembler::reference_address(Label * L) {
+  DCHECK(!L->is_bound());
+  uint32_t target_pos;
+  
+  if (L->is_linked_to_reference() ) {
+    target_pos = L->reference_pos();
+
+    L->link_to_reference(pc_offset());
+    return target_pos;
+  }
+  else {
+    L->link_to_reference(pc_offset());
+    return kEndOfChain;
+  }
 }
 
 
@@ -2404,6 +2471,26 @@ void Assembler::dalign(Register rd, Register rs, Register rt, uint8_t bp) {
   DCHECK(is_uint3(bp));
   uint16_t sa = (DALIGN << kBp3Bits) | bp;
   GenInstrRegister(SPECIAL3, rs, rt, rd, sa, DBSHFL);
+}
+
+
+void Assembler::ld_label_offset(Register dst, Label * label) {
+  if (label->is_bound()) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    uint32_t imm32 = label->pos();
+
+    lui(dst, (imm32 & kHiMask) >> kLuiShift);
+    ori(dst, dst, (imm32 & kImm16Mask));
+  }
+  else
+  {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    uint32_t imm32 = reference_address(label);
+
+    lui(dst, (imm32 & kHiMask) >> kLuiShift);
+    ori(dst, dst, (imm32 & kImm16Mask));
+
+  }
 }
 
 
