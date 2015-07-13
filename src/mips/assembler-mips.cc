@@ -905,7 +905,7 @@ void Assembler::next_reference(Label * L) {
     L->unlink_reference();
   } else {
     DCHECK(link >= 0);
-    L->link_to(link);
+    L->link_to_reference(link);
   }
 }
 
