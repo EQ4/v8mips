@@ -99,6 +99,11 @@ class AssemblerBase: public Malloced {
   // the assembler could clean up internal data structures.
   virtual void AbortedCodeGeneration() { }
 
+  // This function is called when larger quantity of data about to be put
+  // in the instruction flow, so that the assembler could perform internal
+  // maintanance related to instructions and labels
+  virtual void StartDataBlock() { }
+
   static const int kMinimalBufferSize = 4*KB;
 
  protected:

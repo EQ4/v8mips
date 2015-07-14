@@ -385,8 +385,6 @@ bool LCodeGen::GenerateJumpTable() {
   }
   __ RecordComment("]");
 
-  __ ForceTrampolineGeneration();
-
   // The deoptimization jump table is the last part of the instruction
   // sequence. Mark the generated code as done unless we bailed out.
   if (!is_aborted()) status_ = DONE;

@@ -3128,6 +3128,11 @@ void Assembler::LabelDestroyed(Label * l) {
 }
 
 
+void Assembler::StartDataBlock() {
+  ForceTrampolineGeneration();
+}
+
+
 void Assembler::ForceTrampolineGeneration() {
   // Resolving forward jump trampolines
   DCHECK(trampoline_pool_blocked_nesting_ == 0);

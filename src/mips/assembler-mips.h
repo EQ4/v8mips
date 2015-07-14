@@ -536,6 +536,8 @@ class Assembler : public AssemblerBase {
 
   static void QuietNaN(HeapObject* nan);
 
+  void StartDataBlock();
+
   // This sets the branch destination (which gets loaded at the call address).
   // This is for calls and branches within generated code.  The serializer
   // has already deserialized the lui/ori instructions etc.
