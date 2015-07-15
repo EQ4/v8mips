@@ -51,6 +51,7 @@ class ApiFunction;
 namespace internal {
 
 class StatsCounter;
+class Label;
 // -----------------------------------------------------------------------------
 // Platform independent assembler base class.
 
@@ -107,6 +108,9 @@ class AssemblerBase: public Malloced {
   static const int kMinimalBufferSize = 4*KB;
 
  protected:
+
+  virtual void LabelDestroyed(Label * l) { }
+
   // The buffer into which code and relocation info are generated. It could
   // either be owned by the assembler or be provided externally.
   byte* buffer_;
@@ -140,6 +144,8 @@ class AssemblerBase: public Malloced {
   // Constant pool.
   friend class FrameAndConstantPoolScope;
   friend class ConstantPoolUnavailableScope;
+
+  friend class Label;
 };
 
 
@@ -308,7 +314,7 @@ class Label {
 
   int reference_pos_;
 
-  Assembler * assembler_;
+  AssemblerBase * assembler_;
 
   void bind_to(int pos)  {
     DCHECK(pos >= 0);
@@ -331,14 +337,12 @@ class Label {
   void link_to_reference(int pos) {
     reference_pos_ = pos + 1;
   }
-  void link_to_longjmp(int pos, Assembler * assembler = NULL) {
+  void link_to_longjmp(int pos, AssemblerBase * assembler = NULL) {
     DCHECK(trampoline_pos_ <= 0);
     DCHECK(pos_ < 0);
     trampoline_pos_ = - pos - 1;
     DCHECK(is_longjmp_required());
-    if (assembler != NULL) {
-      assembler_ = assembler;
-    }
+    assembler_ = assembler;
   }
 
   void destroyLabel();
@@ -350,7 +354,7 @@ class Label {
   INLINE(void unlink_trampoline()) { trampoline_pos_ = 0;  }
   INLINE(void unlink_jump()) { pos_ = 0;  }
   INLINE(void unlink_reference()) { reference_pos_ = 0; }
-  INLINE(void unlink_longjmp()) { trampoline_pos_ = 0; }
+  INLINE(void unlink_longjmp()) { trampoline_pos_ = 0; assembler_ = NULL; }
   
   friend class Assembler;
   friend class Displacement;

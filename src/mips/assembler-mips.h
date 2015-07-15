@@ -443,7 +443,7 @@ class Assembler : public AssemblerBase {
   // is too small, a fatal error occurs. No deallocation of the buffer is done
   // upon destruction of the assembler.
   Assembler(Isolate* isolate, void* buffer, int buffer_size);
-  virtual ~Assembler() { }
+  virtual ~Assembler();
 
   // GetCode emits any pending (non-emitted) code and fills the descriptor
   // desc. GetCode() is idempotent; it returns the same result if no other
@@ -1199,7 +1199,7 @@ class Assembler : public AssemblerBase {
   void ForceTrampolineGeneration();
 
  protected:
-  void LabelDestroyed(Label * l);
+  virtual void LabelDestroyed(Label * l);
   // Relocation for a type-recording IC has the AST id added to it.  This
   // member variable is a way to pass the information from the call site to
   // the relocation info.
@@ -1477,7 +1477,6 @@ class Assembler : public AssemblerBase {
   PositionsRecorder positions_recorder_;
   friend class PositionsRecorder;
   friend class EnsureSpace;
-  friend class Label;
 };
 
 

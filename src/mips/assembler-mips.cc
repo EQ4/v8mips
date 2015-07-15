@@ -306,6 +306,22 @@ Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
   ClearRecordedAstId();
 }
 
+Assembler::~Assembler() {
+  std::set<Label *>::iterator labels_iterator;
+  for (labels_iterator = destroyed_bound_labels_.begin(); labels_iterator != destroyed_bound_labels_.end(); ) {
+    Label * l = *labels_iterator;
+    destroyed_bound_labels_.erase(labels_iterator++);
+    l->link_to_longjmp(l->longjmp_pos(), NULL);
+    delete l;
+  }
+
+  for (labels_iterator = bound_labels_.begin(); labels_iterator != bound_labels_.end(); ) {
+    Label * l = *labels_iterator;
+    bound_labels_.erase(labels_iterator++);
+    l->link_to_longjmp(l->longjmp_pos(), NULL);
+  }
+}
+
 
 void Assembler::GetCode(CodeDesc* desc) {
   DCHECK(pc_ <= reloc_info_writer.pos());  // No overlap.
