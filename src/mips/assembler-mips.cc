@@ -1848,11 +1848,13 @@ void Assembler::lw(Register rd, const MemOperand& rs) {
 
 
 void Assembler::lwl(Register rd, const MemOperand& rs) {
+  DCHECK(IsMipsArchVariant(kMips32r1) || IsMipsArchVariant(kMips32r2));
   GenInstrImmediate(LWL, rs.rm(), rd, rs.offset_);
 }
 
 
 void Assembler::lwr(Register rd, const MemOperand& rs) {
+  DCHECK(IsMipsArchVariant(kMips32r1) || IsMipsArchVariant(kMips32r2));
   GenInstrImmediate(LWR, rs.rm(), rd, rs.offset_);
 }
 
