@@ -1067,7 +1067,7 @@ void RegExpMacroAssemblerMIPS::WriteStackPointerToRegister(int reg) {
 
 
 bool RegExpMacroAssemblerMIPS::CanReadUnaligned() {
-  return false;
+  return true;
 }
 
 
@@ -1260,13 +1260,49 @@ void RegExpMacroAssemblerMIPS::LoadCurrentCharacterUnchecked(int cp_offset,
   }
   // We assume that we cannot do unaligned loads on MIPS, so this function
   // must only be used to load a single character at a time.
-  DCHECK(characters == 1);
+  DCHECK(characters == 1 || characters == 2 || characters == 4);
   __ Daddu(t1, end_of_input_address(), Operand(offset));
   if (mode_ == LATIN1) {
-    __ lbu(current_character(), MemOperand(t1, 0));
+    if (characters == 1) {
+      __ lbu(current_character(), MemOperand(t1, 0));
+    } else if (characters == 2) {
+      if (kArchVariant == kMips64r2) {
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ andi(current_character(), current_character(), 0x0000FFFF);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lhu(current_character(), MemOperand(t1, 0));
+      }
+    } else if (characters == 4) {
+      if (kArchVariant == kMips64r2) {
+        DCHECK(false);
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ Dext(current_character(), current_character(), 0, 32);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lwu(current_character(), MemOperand(t1, 0));
+      }
+    } else {
+      UNREACHABLE();
+    }
   } else {
     DCHECK(mode_ == UC16);
-    __ lhu(current_character(), MemOperand(t1, 0));
+    if (characters == 1) {
+      __ lhu(current_character(), MemOperand(t1, 0));
+    } else if (characters == 2) {
+      if (kArchVariant == kMips64r2) {
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ Dext(current_character(), current_character(), 0, 32);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lwu(current_character(), MemOperand(t1, 0));
+      }
+    } else {
+      UNREACHABLE();
+    }
   }
 }
 
