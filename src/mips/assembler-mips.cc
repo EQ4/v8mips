@@ -3188,7 +3188,7 @@ void Assembler::CheckBoundTrampolinePool() {
 
       std::set<Label *>* label_set[] = { &bound_labels_, &destroyed_bound_labels_};
       std::set<Label *>* label_set_ptr;
-      for (int i = 0; i < sizeof(label_set)/sizeof(label_set[0]); i++) {
+      for (unsigned int i = 0; i < sizeof(label_set)/sizeof(label_set[0]); i++) {
         label_set_ptr = label_set[i];
         for (bound_labels_iterator = label_set_ptr->begin(); bound_labels_iterator != label_set_ptr->end();) {
           Label* L = *bound_labels_iterator;
