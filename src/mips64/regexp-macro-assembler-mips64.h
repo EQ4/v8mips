@@ -181,6 +181,8 @@ class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
   // Check whether we are exceeding the stack limit on the backtrack stack.
   void CheckStackLimit();
 
+  // Generate code which is used by CheckStackLimit
+  void GenerateStackLimitChech();
 
   // Generate a call to CheckStackGuardState.
   void CallCheckStackGuardState(Register scratch);
@@ -259,7 +261,11 @@ class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
   Label check_preempt_label_;
   Label stack_overflow_label_;
   Label internal_failure_label_;
-  Label check_limit_label_;
+  Label check_limit_store_label_;
+
+  Label* check_limit_label_;
+  static const int kGenerateStackCheckEvery = 300;
+  int generate_stack_check_counter_;
 };
 
 #endif  // V8_INTERPRETED_REGEXP
