@@ -144,6 +144,7 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
       success_label_(),
       backtrack_label_(),
       exit_label_(),
+      stack_overflow_label_(),
       internal_failure_label_() {
   DCHECK_EQ(0, registers_to_save % 2);
   __ jmp(&entry_label_);   // We'll write the entry code later.
@@ -152,6 +153,33 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
   __ bind(&internal_failure_label_);
   __ li(v0, Operand(FAILURE));
   __ Ret();
+
+  // Following code is used by RegExpMacroAssemblerMIPS::CheckStackLimit to detect
+  // stack overflow
+  Label skip;
+  Label store;
+  __ BranchShort(&skip);
+
+  // We use following two locations to store content of ra, since
+  // we cannot store ra on the stack
+  __ Align(8);
+  __ nop();
+  __ bind(&store);
+  __ nop();
+  __ nop();
+
+  // Check stack soubroutine
+  ExternalReference stack_limit =
+      ExternalReference::address_of_regexp_stack_limit(masm_->isolate());
+  __ bind(&check_limit_label_);
+  __ sd(ra, MemOperand(code_pointer(), store.pos() + Code::kHeaderSize - kHeapObjectTag));
+  __ li(a0, Operand(stack_limit));
+  __ ld(a0, MemOperand(a0));
+  SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
+  __ ld(ra, MemOperand(code_pointer(), store.pos() + Code::kHeaderSize - kHeapObjectTag));
+  __ jr(ra);
+  __ bind(&skip);
+
   __ bind(&start_label_);  // And then continue from here.
 }
 
@@ -167,6 +195,7 @@ RegExpMacroAssemblerMIPS::~RegExpMacroAssemblerMIPS() {
   check_preempt_label_.Unuse();
   stack_overflow_label_.Unuse();
   internal_failure_label_.Unuse();
+  check_limit_label_.Unuse();
 }
 
 
@@ -1241,12 +1270,7 @@ void RegExpMacroAssemblerMIPS::CheckPreemption() {
 
 
 void RegExpMacroAssemblerMIPS::CheckStackLimit() {
-  ExternalReference stack_limit =
-      ExternalReference::address_of_regexp_stack_limit(masm_->isolate());
-
-  __ li(a0, Operand(stack_limit));
-  __ ld(a0, MemOperand(a0));
-  SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
+  __ BranchAndLink(&check_limit_label_);
 }
 
 
@@ -1276,7 +1300,6 @@ void RegExpMacroAssemblerMIPS::LoadCurrentCharacterUnchecked(int cp_offset,
       }
     } else if (characters == 4) {
       if (kArchVariant == kMips64r2) {
-        DCHECK(false);
         __ lwr(current_character(), MemOperand(t1, 0));
         __ lwl(current_character(), MemOperand(t1, 3));
         __ Dext(current_character(), current_character(), 0, 32);
