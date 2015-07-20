@@ -109,7 +109,10 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
       backtrack_label_(),
       exit_label_(),
       stack_overflow_label_(),
-      internal_failure_label_() {
+      internal_failure_label_(),
+      check_limit_store_label_(),
+      check_limit_label_(NULL),
+      generate_stack_check_counter_(kGenerateStackCheckEvery)  {
   DCHECK_EQ(0, registers_to_save % 2);
   __ jmp(&entry_label_);   // We'll write the entry code later.
   // If the code gets too big or corrupted, an internal exception will be
@@ -121,26 +124,16 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
   // Following code is used by RegExpMacroAssemblerMIPS::CheckStackLimit to detect
   // stack overflow
   Label skip;
-  Label store;
   __ BranchShort(&skip);
-  __ bind(&store);
+  __ bind(&check_limit_store_label_);
   // We use following two locations to store content of ra, since
   // we cannot store ra on the stack
   __ nop();
   __ nop();
 
-  // Check stack soubroutine
-  ExternalReference stack_limit =
-  ExternalReference::address_of_regexp_stack_limit(masm_->isolate());
-  __ bind(&check_limit_label_);
-  __ sw(ra, MemOperand(code_pointer(), store.pos() + Code::kHeaderSize - kHeapObjectTag));
-  __ li(a0, Operand(stack_limit));
-  __ lw(a0, MemOperand(a0));
-  SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
-  __ lw(ra, MemOperand(code_pointer(), store.pos() + Code::kHeaderSize - kHeapObjectTag));
-  __ jr(ra);
-  __ bind(&skip);
+  GenerateStackLimitCheck();
 
+  __ bind(&skip);
   __ bind(&start_label_);  // And then continue from here.
 }
 
@@ -156,6 +149,9 @@ RegExpMacroAssemblerMIPS::~RegExpMacroAssemblerMIPS() {
   check_preempt_label_.Unuse();
   stack_overflow_label_.Unuse();
   internal_failure_label_.Unuse();
+  check_limit_label_->Unuse();
+  delete check_limit_label_;
+  check_limit_store_label_.Unuse();
 }
 
 
@@ -1219,8 +1215,38 @@ void RegExpMacroAssemblerMIPS::CheckPreemption() {
 }
 
 
+void RegExpMacroAssemblerMIPS::GenerateStackLimitCheck() {
+  if (check_limit_label_ != NULL) {
+    DCHECK(check_limit_label_->is_bound());
+    check_limit_label_->Unuse();
+    delete check_limit_label_;
+  }
+
+  check_limit_label_ = new Label();
+
+  Label skip;
+  __ BranchShort(&skip);
+  // Check stack soubroutine
+  ExternalReference stack_limit =
+      ExternalReference::address_of_regexp_stack_limit(masm_->isolate());
+  __ bind(check_limit_label_);
+  __ sw(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
+  __ li(a0, Operand(stack_limit));
+  __ lw(a0, MemOperand(a0));
+  SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
+  __ lw(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
+  __ jr(ra);
+  __ bind(&skip);
+}
+
+
 void RegExpMacroAssemblerMIPS::CheckStackLimit() {
-  __ BranchAndLink(&check_limit_label_);
+  generate_stack_check_counter_--;
+  if (generate_stack_check_counter_ == 0) {
+    generate_stack_check_counter_ = kGenerateStackCheckEvery;
+    GenerateStackLimitCheck();
+  }
+  __ BranchAndLink(check_limit_label_);
 }
 
 
