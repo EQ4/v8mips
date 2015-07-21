@@ -165,7 +165,6 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
   // We use following two locations to store content of ra, since
   // we cannot store ra on the stack
   __ Align(8);
-  __ nop();
   __ bind(&check_limit_store_label_);
   __ nop();
   __ nop();
@@ -1265,7 +1264,6 @@ void RegExpMacroAssemblerMIPS::CheckPreemption() {
 
 
 void RegExpMacroAssemblerMIPS::GenerateStackLimitChech() {
-  
   if (check_limit_label_ != NULL) {
     DCHECK(check_limit_label_->is_bound());
     check_limit_label_->Unuse();
@@ -1286,6 +1284,7 @@ void RegExpMacroAssemblerMIPS::GenerateStackLimitChech() {
   SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
   __ ld(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
   __ jr(ra);
+  __ nop();
   __ bind(&skip);
 }
 
