@@ -267,14 +267,16 @@ class Label {
   }
 
   INLINE(~Label()) {
-    destroyLabel();
+    if (is_longjmp_required()) {
+      destroyLabel();
+    }
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
     DCHECK(!is_linked_to_trampoline());
     DCHECK(!is_linked_to_reference());
   }
 
-  INLINE(void Unuse()) { pos_ = 0; trampoline_pos_ = 0; reference_pos_ = 0; }
+  INLINE(void Unuse()) { if (is_longjmp_required()) { destroyLabel(); } pos_ = 0; trampoline_pos_ = 0; reference_pos_ = 0; }
   INLINE(void UnuseNear()) { near_link_pos_ = 0; }
 
   INLINE(bool is_bound() const) { return pos_ <  0;  }

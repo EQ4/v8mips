@@ -494,6 +494,9 @@ void Assembler::CheckBuffer() {
 
 
 void Assembler::CheckTrampolinePoolQuick() {
+  if (pc_offset() >= bound_next_buffer_check_) {
+    CheckBoundTrampolinePool();
+  }
   if (pc_offset() >= next_buffer_check_) {
     CheckTrampolinePool();
   }
