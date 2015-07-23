@@ -1236,6 +1236,7 @@ void RegExpMacroAssemblerMIPS::GenerateStackLimitCheck() {
   SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
   __ lw(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
   __ jr(ra);
+  __ nop();
   __ bind(&skip);
 }
 
