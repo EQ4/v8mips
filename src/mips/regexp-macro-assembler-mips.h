@@ -15,6 +15,71 @@ namespace v8 {
 namespace internal {
 
 #ifndef V8_INTERPRETED_REGEXP
+
+class DelayedRegExpMacroAssemblerMIPS {
+ public:
+  DelayedRegExpMacroAssemblerMIPS(MacroAssembler* masm)
+    : state(None),
+      masm_(masm),
+      jump_label_(NULL) {
+  }
+  ~DelayedRegExpMacroAssemblerMIPS() {
+    DCHECK(state == None);
+  }
+  void Jump(Label * l) {
+    EmitPendingJump();
+    DCHECK(state == None);
+
+    if (l->is_bound()) {
+      masm_->jmp(l);
+    } else {
+      jump_label_ = l;
+      state = Jumped;
+    }
+ }
+  void Bind(Label * l) {
+    DCHECK(state == Jumped || state == None);
+    if (l == jump_label_ && state == Jumped) {
+      masm_->bind(l);
+      state = None;
+    } else {
+      EmitPending();
+      DCHECK(state == None);
+      masm_->bind(l);
+    }
+    jump_label_ = NULL;
+  }
+  void EmitPending() {
+    if (state == None) {
+    } else if (state == Jumped) {
+      EmitPendingJump();  
+    }
+    DCHECK(state == None);
+  }
+ 
+ private:
+
+  enum OperationState {
+    None,
+    Jumped,
+  };
+
+  inline void EmitPendingJump() {
+    DCHECK(state == Jumped || state == None);
+    if (state == Jumped) {
+      DCHECK(jump_label_ != NULL);
+      masm_->jmp(jump_label_);
+      jump_label_ = NULL;
+      state = None;
+    }
+  }
+
+  OperationState state;
+
+  MacroAssembler* masm_;
+  Label * jump_label_;
+};
+
 class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone, Mode mode,
@@ -224,6 +289,8 @@ class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
   Label* check_limit_label_;
   static const int kGenerateStackCheckEvery = 300;
   int generate_stack_check_counter_;
+
+  DelayedRegExpMacroAssemblerMIPS delayed_masm_;
 };
 
 #endif  // V8_INTERPRETED_REGEXP
