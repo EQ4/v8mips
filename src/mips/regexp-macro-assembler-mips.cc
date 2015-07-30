@@ -429,7 +429,8 @@ void RegExpMacroAssemblerMIPS::CheckNotBackReference(
 
 void RegExpMacroAssemblerMIPS::CheckNotCharacter(uint32_t c,
                                                  Label* on_not_equal) {
-  BranchOrBacktrack(on_not_equal, ne, current_character(), Operand(c));
+  Label * neq = on_not_equal ? on_not_equal : &backtrack_label_;
+  delayed_masm_.CheckNotCharacter(current_character(), c, neq);
 }
 
 
@@ -491,8 +492,8 @@ void RegExpMacroAssemblerMIPS::CheckCharacterNotInRange(
 void RegExpMacroAssemblerMIPS::CheckBitInTable(
     Handle<ByteArray> table,
     Label* on_bit_set) {
-  __ li(a0, Operand(table));
   delayed_masm_.EmitPending();
+  __ li(a0, Operand(table));
   if (mode_ != LATIN1 || kTableMask != String::kMaxOneByteCharCode) {
     __ And(a1, current_character(), Operand(kTableSize - 1));
     __ Addu(a0, a0, a1);
@@ -716,6 +717,7 @@ Handle<HeapObject> RegExpMacroAssemblerMIPS::GetCode(Handle<String> source) {
     __ bind(&load_char_start_regexp);
     // Load previous char as initial value of current character register.
     LoadCurrentCharacterUnchecked(-1, 1);
+    delayed_masm_.EmitPending();
     __ bind(&start_regexp);
 
     // Initialize on-stack registers.
@@ -971,6 +973,7 @@ void RegExpMacroAssemblerMIPS::LoadCurrentCharacter(int cp_offset,
   DCHECK(cp_offset >= -1);      // ^ and \b can look behind one character.
   DCHECK(cp_offset < (1<<30));  // Be sane! (And ensure negation works).
   if (check_bounds) {
+    delayed_masm_.EmitPending();
     CheckPosition(cp_offset + characters - 1, on_end_of_input);
   }
   LoadCurrentCharacterUnchecked(cp_offset, characters);
@@ -1035,16 +1038,17 @@ void RegExpMacroAssemblerMIPS::ReadStackPointerFromRegister(int reg) {
 
 void RegExpMacroAssemblerMIPS::SetCurrentPositionFromEnd(int by) {
   Label after_position;
+  delayed_masm_.EmitPending();
   __ Branch(&after_position,
             ge,
             current_input_offset(),
             Operand(-by * char_size()));
-  delayed_masm_.EmitPending();
   __ li(current_input_offset(), -by * char_size());
   // On RegExp code entry (where this operation is used), the character before
   // the current position is expected to be already loaded.
   // We have advanced the position, so it's safe to read backwards.
   LoadCurrentCharacterUnchecked(-1, 1);
+  delayed_masm_.EmitPending();
   __ bind(&after_position);
 }
 
@@ -1095,7 +1099,7 @@ void RegExpMacroAssemblerMIPS::WriteStackPointerToRegister(int reg) {
 
 
 bool RegExpMacroAssemblerMIPS::CanReadUnaligned() {
-  return true;
+  return false;
 }
 
 
@@ -1326,55 +1330,15 @@ void RegExpMacroAssemblerMIPS::CheckStackLimit() {
 
 void RegExpMacroAssemblerMIPS::LoadCurrentCharacterUnchecked(int cp_offset,
                                                              int characters) {
-  Register offset = current_input_offset();
-  delayed_masm_.EmitPending();
-  if (cp_offset != 0) {
-    // t7 is not being used to store the capture start index at this point.
-    __ Addu(t7, current_input_offset(), Operand(cp_offset * char_size()));
-    offset = t7;
-  }
-
-  DCHECK(characters == 1 || characters == 2 || characters == 4);
-  __ Addu(t5, end_of_input_address(), Operand(offset));
-  if (mode_ == LATIN1) {
-    if (characters == 1) {
-      __ lbu(current_character(), MemOperand(t5, 0));
-    } else if (characters == 2) {
-      if (IsMipsArchVariant(kMips32r1) || IsMipsArchVariant(kMips32r2)) {
-        __ lwr(current_character(), MemOperand(t5, 0));
-        __ lwl(current_character(), MemOperand(t5, 3));
-        __ andi(current_character(), current_character(), 0x0000FFFF);
-      } else {
-        DCHECK(IsMipsArchVariant(kMips32r6));
-        __ lhu(current_character(), MemOperand(t5, 0));
-      }
-    } else if (characters == 4) {
-      if (IsMipsArchVariant(kMips32r1) || IsMipsArchVariant(kMips32r2)) {
-        __ lwr(current_character(), MemOperand(t5, 0));
-        __ lwl(current_character(), MemOperand(t5, 3));
-      } else {
-        DCHECK(IsMipsArchVariant(kMips32r6));
-        __ lw(current_character(), MemOperand(t5, 0));
-      }
-    } else {
-      UNREACHABLE();
-    }
-  } else {
-    DCHECK(mode_ == UC16);
-    if (characters == 1) {
-      __ lhu(current_character(), MemOperand(t5, 0));
-    } else if (characters == 2) {
-      if (IsMipsArchVariant(kMips32r1) || IsMipsArchVariant(kMips32r2)) {
-        __ lwr(current_character(), MemOperand(t5, 0));
-        __ lwl(current_character(), MemOperand(t5, 3));
-      } else {
-        DCHECK(IsMipsArchVariant(kMips32r6));
-        __ lw(current_character(), MemOperand(t5, 0));
-      }
-    } else {
-      UNREACHABLE();
-    }
-  }
+  delayed_masm_.LoadCurrentCharacterUnchecked(
+    current_character(),
+    current_input_offset(),
+    end_of_input_address(),
+    cp_offset,
+    characters,
+    mode_,
+    char_size()
+    );
 }
 
 

@@ -27,7 +27,7 @@ class DelayedRegExpMacroAssemblerMIPS {
     DCHECK(state == None);
   }
   void Jump(Label * l) {
-    EmitPendingJump();
+    EmitPending();
     DCHECK(state == None);
 
     if (l->is_bound()) {
@@ -38,6 +38,10 @@ class DelayedRegExpMacroAssemblerMIPS {
     }
  }
   void Bind(Label * l) {
+    if (state != Jumped && state != None) {
+      EmitPending();
+    }
+
     DCHECK(state == Jumped || state == None);
     if (l == jump_label_ && state == Jumped) {
       masm_->bind(l);
@@ -53,8 +57,98 @@ class DelayedRegExpMacroAssemblerMIPS {
     if (state == None) {
     } else if (state == Jumped) {
       EmitPendingJump();  
+    } else if (state == LoadedCharacter || state == CheckedNotCharacter) {
+      EmitPendingLoadCheck();
     }
     DCHECK(state == None);
+  }
+
+  void LoadCurrentCharacterUnchecked(Register current_character, 
+      Register current_input_offset, 
+      Register end_of_input_address, 
+      int cp_offset, 
+      int characters, 
+      NativeRegExpMacroAssembler::Mode mode, 
+      int char_size) {
+    bool emitEmmediately = false;
+
+    DCHECK(characters == 1);
+
+    if (state == Jumped) {
+      EmitPending();
+    }
+
+    DCHECK(state == None || state == LoadedCharacter || state == CheckedNotCharacter);
+
+    if (state == None && characters == 1) {
+      cp_offset_start_ = cp_offset_ = cp_offset;
+      mode_ = mode;
+      state = LoadedCharacter;
+      current_character_ = current_character;
+      current_input_offset_ = current_input_offset;
+      end_of_input_address_ = end_of_input_address;
+      char_size_ = char_size;
+    } else if (state == CheckedNotCharacter && characters == 1 
+             && mode_ == mode 
+             && current_character_.code() == current_character.code()
+             && current_input_offset_.code() == current_input_offset.code()
+             && end_of_input_address_.code() == end_of_input_address.code()
+             && char_size_ == char_size) {
+      if (cp_offset_ == (cp_offset + 1)) {
+        cp_offset_ = cp_offset;
+        state = LoadedCharacter;
+      } else {
+        emitEmmediately = true;
+      }
+    } else {
+      emitEmmediately = true;
+    }
+
+    if (emitEmmediately) {
+      EmitPendingLoadCheck();
+      Register offset = current_input_offset;
+      if (cp_offset_ != 0) {
+        masm_->Addu(t7, current_input_offset, Operand(cp_offset * char_size));
+        offset = t7;
+      }
+      masm_->Addu(t5, end_of_input_address, Operand(offset));
+      if (mode == NativeRegExpMacroAssembler::LATIN1) {
+        masm_->lbu(current_character, MemOperand(t5, 0));
+      } else if (mode == NativeRegExpMacroAssembler::UC16) {
+        masm_->lhu(current_character, MemOperand(t5, 0));
+      }
+    }
+
+  }
+
+  void CheckNotCharacter(Register current_character, uint32_t c, Label* on_not_equal) {
+    bool emitImmediately = false;
+
+    if (state == Jumped) {
+      EmitPending();
+    }
+
+    DCHECK(on_not_equal != NULL);
+
+    if (state == LoadedCharacter && cp_offset_start_ == cp_offset_ && current_character_.code() == current_character.code()) {
+      c_start_ = c_ = c;
+      state = CheckedNotCharacter;
+      on_not_equal_ = on_not_equal;
+    } else if (state == LoadedCharacter && on_not_equal == on_not_equal_) {
+      if (c_ == (c + 1)) {
+        c_ = c;
+        state = CheckedNotCharacter;
+      } else {
+        emitImmediately = true;
+      }
+    } else {
+      emitImmediately = true;
+    }
+
+    if (emitImmediately) {
+      EmitPendingLoadCheck();
+      masm_->Branch(on_not_equal, ne, current_character, Operand(c));
+    }
   }
  
  private:
@@ -62,7 +156,61 @@ class DelayedRegExpMacroAssemblerMIPS {
   enum OperationState {
     None,
     Jumped,
+    LoadedCharacter,
+    CheckedNotCharacter,
   };
+
+  inline void EmitPendingLoadCheck() {
+    DCHECK(state == None || state == LoadedCharacter || state == CheckedNotCharacter);
+
+    if (state == CheckedNotCharacter) {
+      uint32_t c;
+      int cp_offset;
+      c = c_start_;
+      cp_offset = cp_offset_start_;
+      while (cp_offset >= cp_offset_) {
+        if ((cp_offset - 4) >= cp_offset_) {
+          EmitLoadCheck4Character(cp_offset, c);
+          c -= 4;
+          cp_offset -= 4;
+        }
+        else if ((cp_offset - 3) >= cp_offset_) {
+          EmitLoadCheck3Character(cp_offset, c);
+          c -= 3;
+          cp_offset -= 3;
+        }
+        if ((cp_offset - 2) >= cp_offset_) {
+          EmitLoadCheck2Character(cp_offset, c);
+          c -= 2;
+          cp_offset -= 2;
+        } else {
+          EmitLoadCheck1Character(cp_offset, c);
+          c--;
+          cp_offset--;
+        }
+      }
+    } else if (state == LoadedCharacter) {
+      uint32_t c;
+      int cp_offset;
+      for (c = c_start_, cp_offset = cp_offset_start_; cp_offset > cp_offset_; cp_offset--, c--) {
+        EmitLoadCheck1Character(cp_offset, c);
+      }
+      // Adding the last missing load character
+      Register offset = current_input_offset_;
+      if (cp_offset_ != 0) {
+        masm_->Addu(t7, current_input_offset_, Operand(cp_offset_ * char_size_));
+        offset = t7;
+      }
+      masm_->Addu(t5, end_of_input_address_, Operand(offset));
+      if (mode_ == NativeRegExpMacroAssembler::LATIN1) {
+        masm_->lbu(current_character_, MemOperand(t5, 0));
+      } else if (mode_ == NativeRegExpMacroAssembler::UC16) {
+        masm_->lhu(current_character_, MemOperand(t5, 0));
+      }
+    }
+
+    state = None;
+  }
 
   inline void EmitPendingJump() {
     DCHECK(state == Jumped || state == None);
@@ -74,10 +222,112 @@ class DelayedRegExpMacroAssemblerMIPS {
     }
   }
 
+  void EmitLoadCheck1Character(int cp_offset, uint32_t c) {
+    Register offset = current_input_offset_;
+    if (cp_offset != 0) {
+      masm_->Addu(t7, current_input_offset_, Operand(cp_offset * char_size_));
+      offset = t7;
+    }
+    masm_->Addu(t5, end_of_input_address_, Operand(offset));
+    if (mode_ == NativeRegExpMacroAssembler::LATIN1) {
+      masm_->lbu(current_character_, MemOperand(t5, 0));
+    } else if (mode_ == NativeRegExpMacroAssembler::UC16) {
+      masm_->lhu(current_character_, MemOperand(t5, 0));
+    }
+
+    masm_->Branch(on_not_equal_, ne, current_character_, Operand(c));
+  }
+
+  void EmitLoadCheck2Character(int cp_offset, uint32_t c) {
+    Register offset = current_input_offset_;
+    if (cp_offset != 1) {
+      masm_->Addu(t7, current_input_offset_, Operand((cp_offset - 1) * char_size_));
+      offset = t7;
+    }
+    masm_->Addu(t5, end_of_input_address_, Operand(offset));
+    if (mode_ == NativeRegExpMacroAssembler::LATIN1) {
+      //masm_->lbu(current_character_, MemOperand(t5, 0));
+      masm_->lwr(t7, MemOperand(t5, 0));
+      masm_->lwl(t7, MemOperand(t5, 3));
+      masm_->Ext(current_character_, t7, 8, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 0, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 1));
+
+    } else if (mode_ == NativeRegExpMacroAssembler::UC16) {
+      DCHECK(false);
+      masm_->lhu(current_character_, MemOperand(t5, 0));
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c));
+    }
+  }
+
+  void EmitLoadCheck3Character(int cp_offset, uint32_t c) {
+    Register offset = current_input_offset_;
+    if (cp_offset != 2) {
+      masm_->Addu(t7, current_input_offset_, Operand((cp_offset - 2) * char_size_));
+      offset = t7;
+    }
+    masm_->Addu(t5, end_of_input_address_, Operand(offset));
+    if (mode_ == NativeRegExpMacroAssembler::LATIN1) {
+      //masm_->lbu(current_character_, MemOperand(t5, 0));
+      masm_->lwr(t7, MemOperand(t5, 0));
+      masm_->lwl(t7, MemOperand(t5, 3));
+      masm_->Ext(current_character_, t7, 16, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 8, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 1), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 0, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 2));
+    } else if (mode_ == NativeRegExpMacroAssembler::UC16) {
+      DCHECK(false);
+      masm_->lhu(current_character_, MemOperand(t5, 0));
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c));
+    }
+   
+  }
+
+  void EmitLoadCheck4Character(int cp_offset, uint32_t c) {
+    Register offset = current_input_offset_;
+    if (cp_offset != 3) {
+      masm_->Addu(t7, current_input_offset_, Operand((cp_offset - 3) * char_size_));
+      offset = t7;
+    }
+    masm_->Addu(t5, end_of_input_address_, Operand(offset));
+    if (mode_ == NativeRegExpMacroAssembler::LATIN1) {
+      //masm_->lbu(current_character_, MemOperand(t5, 0));
+      masm_->lwr(t7, MemOperand(t5, 0));
+      masm_->lwl(t7, MemOperand(t5, 3));
+      masm_->Ext(current_character_, t7, 24, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 16, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 1), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 8, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 2), USE_DELAY_SLOT);
+      masm_->Ext(current_character_, t7, 0, 8);
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c - 3));
+    } else if (mode_ == NativeRegExpMacroAssembler::UC16) {
+      DCHECK(false);
+      masm_->lhu(current_character_, MemOperand(t5, 0));
+      masm_->Branch(on_not_equal_, ne, current_character_, Operand(c));
+    }
+   
+  }
+
   OperationState state;
 
   MacroAssembler* masm_;
   Label * jump_label_;
+
+  int cp_offset_start_;
+  int cp_offset_;
+  NativeRegExpMacroAssembler::Mode mode_;
+  Register current_character_;
+  Register current_input_offset_;
+  Register end_of_input_address_;
+  uint32_t c_start_;
+  uint32_t c_;
+  Label * on_not_equal_;
+  int char_size_;
 };
 
 class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
