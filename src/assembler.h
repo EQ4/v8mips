@@ -51,6 +51,7 @@ class ApiFunction;
 namespace internal {
 
 class StatsCounter;
+class Label;
 // -----------------------------------------------------------------------------
 // Platform independent assembler base class.
 
@@ -99,9 +100,17 @@ class AssemblerBase: public Malloced {
   // the assembler could clean up internal data structures.
   virtual void AbortedCodeGeneration() { }
 
+  // This function is called when larger quantity of data about to be put
+  // in the instruction flow, so that the assembler could perform internal
+  // maintanance related to instructions and labels
+  virtual void StartDataBlock() { }
+
   static const int kMinimalBufferSize = 4*KB;
 
  protected:
+
+  virtual void LabelDestroyed(Label * l) { }
+
   // The buffer into which code and relocation info are generated. It could
   // either be owned by the assembler or be provided externally.
   byte* buffer_;
@@ -135,6 +144,8 @@ class AssemblerBase: public Malloced {
   // Constant pool.
   friend class FrameAndConstantPoolScope;
   friend class ConstantPoolUnavailableScope;
+
+  friend class Label;
 };
 
 
@@ -250,27 +261,44 @@ class Label {
   };
 
   INLINE(Label()) {
+    assembler_ = NULL;
     Unuse();
     UnuseNear();
   }
 
   INLINE(~Label()) {
+    if (is_longjmp_required()) {
+      destroyLabel();
+    }
     DCHECK(!is_linked());
     DCHECK(!is_near_linked());
+    DCHECK(!is_linked_to_trampoline());
+    DCHECK(!is_linked_to_reference());
   }
 
-  INLINE(void Unuse()) { pos_ = 0; }
+  INLINE(void Unuse()) { if (is_longjmp_required()) { destroyLabel(); } pos_ = 0; trampoline_pos_ = 0; reference_pos_ = 0; }
   INLINE(void UnuseNear()) { near_link_pos_ = 0; }
 
-  INLINE(bool is_bound() const) { return pos_ <  0; }
-  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0; }
-  INLINE(bool is_linked() const) { return pos_ >  0; }
+  INLINE(bool is_bound() const) { return pos_ <  0;  }
+  INLINE(bool is_unused() const) { return pos_ == 0 && near_link_pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ == 0; }
+  INLINE(bool is_linked() const) { return (pos_ >  0) || ( pos_ == 0 && trampoline_pos_ > 0) || (pos_ == 0 && trampoline_pos_ == 0 && reference_pos_ != 0);  }
   INLINE(bool is_near_linked() const) { return near_link_pos_ > 0; }
-
+  
   // Returns the position of bound or linked labels. Cannot be used
   // for unused labels.
   int pos() const;
   int near_link_pos() const { return near_link_pos_ - 1; }
+  int trampoline_pos() const { return trampoline_pos_ - 1; }
+  int reference_pos() const { return reference_pos_ - 1; }
+  int longjmp_pos() const { DCHECK(trampoline_pos_ < 0); return -trampoline_pos_ - 1; }
+
+  void Copy(Label * copy_to) {
+    copy_to->pos_ = pos_;
+    copy_to->trampoline_pos_ = trampoline_pos_;
+    copy_to->near_link_pos_ = near_link_pos_;
+    copy_to->reference_pos_ = reference_pos_;
+    copy_to->assembler_ = assembler_;
+  }
 
  private:
   // pos_ encodes both the binding state (via its sign)
@@ -284,11 +312,19 @@ class Label {
   // Behaves like |pos_| in the "> 0" case, but for near jumps to this label.
   int near_link_pos_;
 
+  int trampoline_pos_;
+
+  int reference_pos_;
+
+  AssemblerBase * assembler_;
+
   void bind_to(int pos)  {
+    DCHECK(pos >= 0);
     pos_ = -pos - 1;
     DCHECK(is_bound());
   }
   void link_to(int pos, Distance distance = kFar) {
+    DCHECK(pos >= 0);
     if (distance == kNear) {
       near_link_pos_ = pos + 1;
       DCHECK(is_near_linked());
@@ -297,13 +333,37 @@ class Label {
       DCHECK(is_linked());
     }
   }
+  void link_to_trampoline(int pos) {
+    trampoline_pos_ = pos + 1;
+  }
+  void link_to_reference(int pos) {
+    reference_pos_ = pos + 1;
+  }
+  void link_to_longjmp(int pos, AssemblerBase * assembler = NULL) {
+    DCHECK(trampoline_pos_ <= 0);
+    DCHECK(pos_ < 0);
+    trampoline_pos_ = - pos - 1;
+    DCHECK(is_longjmp_required());
+    assembler_ = assembler;
+  }
 
+  void destroyLabel();
+
+  INLINE(bool is_linked_to_trampoline() const) { return trampoline_pos_ > 0; }
+  INLINE(bool is_linked_to_jump() const) { return (pos_ >  0);  }
+  INLINE(bool is_linked_to_reference() const) { return (reference_pos_ > 0); }
+  INLINE(bool is_longjmp_required() const) { return trampoline_pos_ < 0; }
+  INLINE(void unlink_trampoline()) { trampoline_pos_ = 0;  }
+  INLINE(void unlink_jump()) { pos_ = 0;  }
+  INLINE(void unlink_reference()) { reference_pos_ = 0; }
+  INLINE(void unlink_longjmp()) { trampoline_pos_ = 0; assembler_ = NULL; }
+  
   friend class Assembler;
   friend class Displacement;
   friend class RegExpMacroAssemblerIrregexp;
 
-#if V8_TARGET_ARCH_ARM64
-  // On ARM64, the Assembler keeps track of pointers to Labels to resolve
+#if V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_MIPS
+  // On ARM64 and MIPS64, the Assembler keeps track of pointers to Labels to resolve
   // branches to distant targets. Copying labels would confuse the Assembler.
   DISALLOW_COPY_AND_ASSIGN(Label);  // NOLINT
 #endif

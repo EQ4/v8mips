@@ -1662,17 +1662,24 @@ int Simulator::ReadW(int32_t addr, Instruction* instr) {
     MipsDebugger dbg(this);
     dbg.Debug();
   }
-  if ((addr & kPointerAlignmentMask) == 0) {
+  if (IsMipsArchVariant(kMips32r2) || IsMipsArchVariant(kMips32r1)) {
+    if ((addr & kPointerAlignmentMask) == 0) {
+      intptr_t* ptr = reinterpret_cast<intptr_t*>(addr);
+      TraceMemRd(addr, static_cast<int32_t>(*ptr));
+      return *ptr;
+    }
+    PrintF("Unaligned read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
+           addr,
+           reinterpret_cast<intptr_t>(instr));
+    MipsDebugger dbg(this);
+    dbg.Debug();
+    return 0;
+  } else {
+    DCHECK(IsMipsArchVariant(kMips32r6));
     intptr_t* ptr = reinterpret_cast<intptr_t*>(addr);
     TraceMemRd(addr, static_cast<int32_t>(*ptr));
     return *ptr;
   }
-  PrintF("Unaligned read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
-         addr,
-         reinterpret_cast<intptr_t>(instr));
-  MipsDebugger dbg(this);
-  dbg.Debug();
-  return 0;
 }
 
 
@@ -1684,17 +1691,25 @@ void Simulator::WriteW(int32_t addr, int value, Instruction* instr) {
     MipsDebugger dbg(this);
     dbg.Debug();
   }
-  if ((addr & kPointerAlignmentMask) == 0) {
+  if (IsMipsArchVariant(kMips32r2) || IsMipsArchVariant(kMips32r1)) {
+    if ((addr & kPointerAlignmentMask) == 0) {
+      intptr_t* ptr = reinterpret_cast<intptr_t*>(addr);
+      TraceMemWr(addr, value, WORD);
+      *ptr = value;
+      return;
+    }
+    PrintF("Unaligned write at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
+           addr,
+           reinterpret_cast<intptr_t>(instr));
+    MipsDebugger dbg(this);
+    dbg.Debug();
+  } else {
+    DCHECK(IsMipsArchVariant(kMips32r6));
     intptr_t* ptr = reinterpret_cast<intptr_t*>(addr);
     TraceMemWr(addr, value, WORD);
     *ptr = value;
     return;
   }
-  PrintF("Unaligned write at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
-         addr,
-         reinterpret_cast<intptr_t>(instr));
-  MipsDebugger dbg(this);
-  dbg.Debug();
 }
 
 
@@ -1725,16 +1740,23 @@ void Simulator::WriteD(int32_t addr, double value, Instruction* instr) {
 
 
 uint16_t Simulator::ReadHU(int32_t addr, Instruction* instr) {
-  if ((addr & 1) == 0) {
+  if (IsMipsArchVariant(kMips32r2) || IsMipsArchVariant(kMips32r1)) {
+    if ((addr & 1) == 0) {
+      uint16_t* ptr = reinterpret_cast<uint16_t*>(addr);
+      TraceMemRd(addr, static_cast<int32_t>(*ptr));
+      return *ptr;
+    }
+    PrintF("Unaligned unsigned halfword read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
+           addr,
+           reinterpret_cast<intptr_t>(instr));
+    base::OS::Abort();
+    return 0;
+  } else {
+    DCHECK(IsMipsArchVariant(kMips32r6));
     uint16_t* ptr = reinterpret_cast<uint16_t*>(addr);
     TraceMemRd(addr, static_cast<int32_t>(*ptr));
     return *ptr;
   }
-  PrintF("Unaligned unsigned halfword read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
-         addr,
-         reinterpret_cast<intptr_t>(instr));
-  base::OS::Abort();
-  return 0;
 }
 
 

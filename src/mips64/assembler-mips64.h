@@ -436,7 +436,7 @@ class Assembler : public AssemblerBase {
   // is too small, a fatal error occurs. No deallocation of the buffer is done
   // upon destruction of the assembler.
   Assembler(Isolate* isolate, void* buffer, int buffer_size);
-  virtual ~Assembler() { }
+  virtual ~Assembler();
 
   // GetCode emits any pending (non-emitted) code and fills the descriptor
   // desc. GetCode() is idempotent; it returns the same result if no other
@@ -481,6 +481,11 @@ class Assembler : public AssemblerBase {
     return o >> 2;
   }
   uint64_t jump_address(Label* L);
+  uint64_t trampoline_address(Label* L );
+  uint32_t reference_address(Label* L );
+
+  int32_t bound_label_branch_offset(Label * L);
+
 
   // Puts a labels target address at the given position.
   // The high 8 bits are set to zero.
@@ -524,6 +529,8 @@ class Assembler : public AssemblerBase {
   static void JumpLabelToJumpRegister(Address pc);
 
   static void QuietNaN(HeapObject* nan);
+
+  void StartDataBlock();
 
   // This sets the branch destination (which gets loaded at the call address).
   // This is for calls and branches within generated code.  The serializer
@@ -928,6 +935,8 @@ class Assembler : public AssemblerBase {
   void align(Register rd, Register rs, Register rt, uint8_t bp);
   void dalign(Register rd, Register rs, Register rt, uint8_t bp);
 
+  void ld_label_offset(Register dst, Label* label);
+
   // --------Coprocessor-instructions----------------
 
   // Load, store, and move.
@@ -1222,6 +1231,7 @@ class Assembler : public AssemblerBase {
   static bool IsEmittedConstant(Instr instr);
 
   void CheckTrampolinePool();
+  void CheckBoundTrampolinePool();
 
   void PatchConstantPoolAccessInstruction(int pc_offset, int offset,
                                           ConstantPoolEntry::Access access,
@@ -1230,7 +1240,10 @@ class Assembler : public AssemblerBase {
     UNREACHABLE();
   }
 
+  void ForceTrampolineGeneration();
+
  protected:
+  virtual void LabelDestroyed(Label * l);
   // Relocation for a type-recording IC has the AST id added to it.  This
   // member variable is a way to pass the information from the call site to
   // the relocation info.
@@ -1243,9 +1256,12 @@ class Assembler : public AssemblerBase {
 
   // Decode branch instruction at pos and return branch target pos.
   int target_at(int pos, bool is_internal);
+  int trampoline_target_at(int pos);
+  int reference_target_at(int pos);
 
   // Patch branch instruction at pos to branch to given branch target pos.
   void target_at_put(int pos, int target_pos, bool is_internal);
+  void reference_target_at_put(int pos, int target_pos);
 
   // Say if we need to relocate with this mode.
   bool MustUseReg(RelocInfo::Mode rmode);
@@ -1316,6 +1332,7 @@ class Assembler : public AssemblerBase {
   static const int kCheckConstInterval = kCheckConstIntervalInst * kInstrSize;
 
   int next_buffer_check_;  // pc offset of next buffer check.
+  int bound_next_buffer_check_; // pc offset for backward next buffer check
 
   // Emission of the trampoline pool may be blocked in some code sequences.
   int trampoline_pool_blocked_nesting_;  // Block emission if this is not zero.
@@ -1419,6 +1436,14 @@ class Assembler : public AssemblerBase {
   void bind_to(Label* L, int pos);
   void next(Label* L, bool is_internal);
 
+  void bind_to_trampoline(Label* l, int pos);
+  void next_trampoline(Label* l);
+
+  void bind_bound_to_trampoline(Label* l, int pos);
+  void next_bound(Label* l, bool is_internal);
+
+  void next_reference(Label* l);
+
   // One trampoline consists of:
   // - space for trampoline slots,
   // - space for labels.
@@ -1470,8 +1495,6 @@ class Assembler : public AssemblerBase {
     int free_slot_count_;
   };
 
-  int32_t get_trampoline_entry(int32_t pos);
-  int unbound_labels_count_;
   // After trampoline is emitted, long branches are used in generated code for
   // the forward branches whose target offsets could be beyond reach of branch
   // instruction. We use this information to trigger different mode of
@@ -1486,7 +1509,9 @@ class Assembler : public AssemblerBase {
   // labels.
   std::set<int64_t> internal_reference_positions_;
 
-  Trampoline trampoline_;
+  std::set<Label *> unbound_labels_;
+  std::set<Label *> bound_labels_;
+  std::set<Label *> destroyed_bound_labels_;
   bool internal_trampoline_exception_;
 
   friend class RegExpMacroAssemblerMIPS;
@@ -1497,6 +1522,7 @@ class Assembler : public AssemblerBase {
   PositionsRecorder positions_recorder_;
   friend class PositionsRecorder;
   friend class EnsureSpace;
+  friend class Label;
 };
 
 

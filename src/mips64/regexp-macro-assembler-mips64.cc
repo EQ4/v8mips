@@ -144,7 +144,11 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
       success_label_(),
       backtrack_label_(),
       exit_label_(),
-      internal_failure_label_() {
+      stack_overflow_label_(),
+      internal_failure_label_(),
+      check_limit_store_label_(),
+      check_limit_label_(NULL),
+      generate_stack_check_counter_(kGenerateStackCheckEvery) {
   DCHECK_EQ(0, registers_to_save % 2);
   __ jmp(&entry_label_);   // We'll write the entry code later.
   // If the code gets too big or corrupted, an internal exception will be
@@ -152,6 +156,22 @@ RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
   __ bind(&internal_failure_label_);
   __ li(v0, Operand(FAILURE));
   __ Ret();
+
+  // Following code is used by RegExpMacroAssemblerMIPS::CheckStackLimit to detect
+  // stack overflow
+  Label skip;
+  __ BranchShort(&skip);
+
+  // We use following two locations to store content of ra, since
+  // we cannot store ra on the stack
+  __ Align(8);
+  __ bind(&check_limit_store_label_);
+  __ nop();
+  __ nop();
+
+  GenerateStackLimitChech();
+
+  __ bind(&skip);
   __ bind(&start_label_);  // And then continue from here.
 }
 
@@ -167,6 +187,9 @@ RegExpMacroAssemblerMIPS::~RegExpMacroAssemblerMIPS() {
   check_preempt_label_.Unuse();
   stack_overflow_label_.Unuse();
   internal_failure_label_.Unuse();
+  check_limit_label_->Unuse();
+  delete check_limit_label_;
+  check_limit_store_label_.Unuse();
 }
 
 
@@ -979,19 +1002,7 @@ void RegExpMacroAssemblerMIPS::PushBacktrack(Label* label) {
     __ li(a0, Operand(target + Code::kHeaderSize - kHeapObjectTag));
   } else {
     Assembler::BlockTrampolinePoolScope block_trampoline_pool(masm_);
-    Label after_constant;
-    __ Branch(&after_constant);
-    int offset = masm_->pc_offset();
-    int cp_offset = offset + Code::kHeaderSize - kHeapObjectTag;
-    __ emit(0);
-    masm_->label_at_put(label, offset);
-    __ bind(&after_constant);
-    if (is_int16(cp_offset)) {
-      __ lwu(a0, MemOperand(code_pointer(), cp_offset));
-    } else {
-      __ Daddu(a0, code_pointer(), cp_offset);
-      __ lwu(a0, MemOperand(a0, 0));
-    }
+    __ ld_label_offset(a0, label);
   }
   Push(a0);
   CheckStackLimit();
@@ -1079,7 +1090,7 @@ void RegExpMacroAssemblerMIPS::WriteStackPointerToRegister(int reg) {
 
 
 bool RegExpMacroAssemblerMIPS::CanReadUnaligned() {
-  return false;
+  return true;
 }
 
 
@@ -1252,13 +1263,39 @@ void RegExpMacroAssemblerMIPS::CheckPreemption() {
 }
 
 
-void RegExpMacroAssemblerMIPS::CheckStackLimit() {
+void RegExpMacroAssemblerMIPS::GenerateStackLimitChech() {
+  if (check_limit_label_ != NULL) {
+    DCHECK(check_limit_label_->is_bound());
+    check_limit_label_->Unuse();
+    delete check_limit_label_;
+  }
+
+  check_limit_label_ = new Label();
+
+  Label skip;
+  __ BranchShort(&skip);
+  // Check stack soubroutine
   ExternalReference stack_limit =
       ExternalReference::address_of_regexp_stack_limit(masm_->isolate());
-
+  __ bind(check_limit_label_);
+  __ sd(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
   __ li(a0, Operand(stack_limit));
   __ ld(a0, MemOperand(a0));
   SafeCall(&stack_overflow_label_, ls, backtrack_stackpointer(), Operand(a0));
+  __ ld(ra, MemOperand(code_pointer(), check_limit_store_label_.pos() + Code::kHeaderSize - kHeapObjectTag));
+  __ jr(ra);
+  __ nop();
+  __ bind(&skip);
+}
+
+
+void RegExpMacroAssemblerMIPS::CheckStackLimit() {
+  generate_stack_check_counter_--;
+  if (generate_stack_check_counter_ == 0) {
+    generate_stack_check_counter_ = kGenerateStackCheckEvery;
+    GenerateStackLimitChech();
+  }
+  __ BranchAndLink(check_limit_label_);
 }
 
 
@@ -1272,13 +1309,48 @@ void RegExpMacroAssemblerMIPS::LoadCurrentCharacterUnchecked(int cp_offset,
   }
   // We assume that we cannot do unaligned loads on MIPS, so this function
   // must only be used to load a single character at a time.
-  DCHECK(characters == 1);
+  DCHECK(characters == 1 || characters == 2 || characters == 4);
   __ Daddu(t1, end_of_input_address(), Operand(offset));
   if (mode_ == LATIN1) {
-    __ lbu(current_character(), MemOperand(t1, 0));
+    if (characters == 1) {
+      __ lbu(current_character(), MemOperand(t1, 0));
+    } else if (characters == 2) {
+      if (kArchVariant == kMips64r2) {
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ andi(current_character(), current_character(), 0x0000FFFF);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lhu(current_character(), MemOperand(t1, 0));
+      }
+    } else if (characters == 4) {
+      if (kArchVariant == kMips64r2) {
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ Dext(current_character(), current_character(), 0, 32);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lwu(current_character(), MemOperand(t1, 0));
+      }
+    } else {
+      UNREACHABLE();
+    }
   } else {
     DCHECK(mode_ == UC16);
-    __ lhu(current_character(), MemOperand(t1, 0));
+    if (characters == 1) {
+      __ lhu(current_character(), MemOperand(t1, 0));
+    } else if (characters == 2) {
+      if (kArchVariant == kMips64r2) {
+        __ lwr(current_character(), MemOperand(t1, 0));
+        __ lwl(current_character(), MemOperand(t1, 3));
+        __ Dext(current_character(), current_character(), 0, 32);
+      } else {
+        DCHECK(kArchVariant == kMips64r6);
+        __ lwu(current_character(), MemOperand(t1, 0));
+      }
+    } else {
+      UNREACHABLE();
+    }
   }
 }
 

@@ -2126,11 +2126,7 @@ void MacroAssembler::Branch(int16_t offset, Condition cond, Register rs,
 
 void MacroAssembler::Branch(Label* L, BranchDelaySlot bdslot) {
   if (L->is_bound()) {
-    if (is_near(L)) {
-      BranchShort(L, bdslot);
-    } else {
-      J(L, bdslot);
-    }
+    BranchShort(L, bdslot);
   } else {
     if (is_trampoline_emitted()) {
       J(L, bdslot);
@@ -2145,19 +2141,7 @@ void MacroAssembler::Branch(Label* L, Condition cond, Register rs,
                             const Operand& rt,
                             BranchDelaySlot bdslot) {
   if (L->is_bound()) {
-    if (is_near(L)) {
-      BranchShort(L, cond, rs, rt, bdslot);
-    } else {
-      if (cond != cc_always) {
-        Label skip;
-        Condition neg_cond = NegateCondition(cond);
-        BranchShort(&skip, neg_cond, rs, rt);
-        J(L, bdslot);
-        bind(&skip);
-      } else {
-        J(L, bdslot);
-      }
-    }
+    BranchShort(L, cond, rs, rt, bdslot);
   } else {
     if (is_trampoline_emitted()) {
       if (cond != cc_always) {
@@ -2730,11 +2714,7 @@ void MacroAssembler::BranchAndLink(int16_t offset, Condition cond, Register rs,
 
 void MacroAssembler::BranchAndLink(Label* L, BranchDelaySlot bdslot) {
   if (L->is_bound()) {
-    if (is_near(L)) {
-      BranchAndLinkShort(L, bdslot);
-    } else {
-      Jal(L, bdslot);
-    }
+    BranchAndLinkShort(L, bdslot);
   } else {
     if (is_trampoline_emitted()) {
       Jal(L, bdslot);
@@ -2749,15 +2729,7 @@ void MacroAssembler::BranchAndLink(Label* L, Condition cond, Register rs,
                                    const Operand& rt,
                                    BranchDelaySlot bdslot) {
   if (L->is_bound()) {
-    if (is_near(L)) {
-      BranchAndLinkShort(L, cond, rs, rt, bdslot);
-    } else {
-      Label skip;
-      Condition neg_cond = NegateCondition(cond);
-      BranchShort(&skip, neg_cond, rs, rt);
-      J(L, bdslot);
-      bind(&skip);
-    }
+    BranchAndLinkShort(L, cond, rs, rt, bdslot);
   } else {
     if (is_trampoline_emitted()) {
       Label skip;
