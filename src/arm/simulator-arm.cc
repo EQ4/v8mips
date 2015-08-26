@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <cmath>
@@ -772,7 +775,10 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
 }
 
 
-Simulator::~Simulator() { free(stack_); }
+Simulator::~Simulator() {
+  fprintf(stderr, "executed instructions: %" PRIu64 "\n", icount_);
+  free(stack_);
+}
 
 
 // When the generated code calls an external reference we need to catch that in

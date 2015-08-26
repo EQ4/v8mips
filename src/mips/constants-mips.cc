@@ -219,7 +219,9 @@ bool Instruction::IsTrap() const {
 }
 
 
-Instruction::Type Instruction::InstructionType() const {
+#if 0   // plind- hack out below, move to constants-mips.h for testing .....
+
+Instruction::Type Instruction::InstructionType1() const {
   switch (OpcodeFieldRaw()) {
     case SPECIAL:
       switch (FunctionFieldRaw()) {
@@ -362,6 +364,7 @@ Instruction::Type Instruction::InstructionType() const {
   }
   return kUnsupported;
 }
+#endif  // plind- hack out above function
 
 
 }  // namespace internal

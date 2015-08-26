@@ -390,7 +390,7 @@ class Simulator {
   // Simulator support.
   char* stack_;
   bool pc_modified_;
-  int icount_;
+  uint64_t icount_;
 
   // Debugger input.
   char* last_debugger_input_;
