@@ -859,6 +859,12 @@ class Instruction {
     kUnsupported = -1
   };
 
+  enum TypeChecks {
+    NORMAL,
+    EXTRA
+  };
+
+
 #define OpcodeToBitNumber(opcode) \
   (1ULL << (static_cast<uint32_t>(opcode) >> kOpcodeShift))
 
@@ -904,19 +910,25 @@ class Instruction {
       FunctionFieldToBitNumber(MOVN) | FunctionFieldToBitNumber(MOVCI) |
       FunctionFieldToBitNumber(SELEQZ_S) | FunctionFieldToBitNumber(SELNEZ_S);
 
+
   // Get the encoding type of the instruction.
-  Instruction::Type InstructionType() const {
-    if (OpcodeToBitNumber(OpcodeFieldRaw()) & kOpcodeImmediateTypeMask) {
-      return kImmediateType;
+  Instruction::Type InstructionType(TypeChecks checks = NORMAL) const {
+    if (checks == EXTRA) {
+      if (OpcodeToBitNumber(OpcodeFieldRaw()) & kOpcodeImmediateTypeMask) {
+        return kImmediateType;
+      }
     }
     switch (OpcodeFieldRaw()) {
       case SPECIAL:
-        // return kRegisterType;
-        if (FunctionFieldToBitNumber(FunctionFieldRaw()) &
-            kFunctionFieldRegisterTypeMask) {
-          return kRegisterType;
+        if (checks == EXTRA) {
+          if (FunctionFieldToBitNumber(FunctionFieldRaw()) &
+              kFunctionFieldRegisterTypeMask) {
+            return kRegisterType;
+          } else {
+            return kUnsupported;
+          }
         } else {
-          return kUnsupported;
+          return kRegisterType;
         }
         break;
       case SPECIAL2:
@@ -974,24 +986,18 @@ class Instruction {
         return kJumpType;
 
       default:
-        printf("what is wrong with this instruction??? : %08x\n",
-               OpcodeFieldRaw());
-        return kUnsupported;
-        // return kImmediateType;
+        if (checks == NORMAL) {
+          return kImmediateType;
+        } else {
+          return kUnsupported;
+        }
     }
   }
+
 
 #undef OpcodeToBitNumber
 #undef FunctionFieldToBitNumber
 
-
-  inline uint64_t get_opcode_imm_type_mask() {
-    return kOpcodeImmediateTypeMask;
-  }
-
-  inline uint64_t get_field_reg_type_mask() {
-    return kFunctionFieldRegisterTypeMask;
-  }
 
   // Accessors for the different named fields used in the MIPS encoding.
   inline Opcode OpcodeValue() const {

@@ -987,30 +987,11 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
   registers_[pc] = bad_ra;
   registers_[ra] = bad_ra;
   InitializeCoverage();
-
-  //  PrintF(" kOpcodeImmediateTypeMask: %016llx,
-  //  kFunctionFieldRegisterTypeMask: %016llx\n",
-  //         Instruction::kOpcodeImmediateTypeMask,
-  //         Instruction::kFunctionFieldRegisterTypeMask);
-
   last_debugger_input_ = NULL;
 }
 
 
 Simulator::~Simulator() {
-  //  PrintF("SWC1 raw opcode: %08x, shifted op: %08x, shifted u-op: %08x,
-  //  op-as-bit: %016llx\n",
-  //         SWC1, SWC1 >> kOpcodeShift, static_cast<uint32_t>(SWC1) >>
-  //         kOpcodeShift,
-  //         1ULL << (static_cast<uint32_t>(SWC1) >> kOpcodeShift));
-  //
-  //
-  //  PrintF(" kOpcodeImmediateTypeMask: %016llx,
-  //  kFunctionFieldRegisterTypeMask: %016llx\n",
-  //         Instruction::kOpcodeImmediateTypeMask,
-  //         Instruction::kFunctionFieldRegisterTypeMask);
-
-
   fprintf(stderr, "executed instructions: %" PRIu64 "\n", icount_);
   fprintf(stderr, "IMMEDIATE instructions: %" PRIu64 "\n",
           type_immediate_count_);
@@ -4226,7 +4207,7 @@ void Simulator::InstructionDecode(Instruction* instr) {
     dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(instr));
   }
 
-  switch (instr->InstructionType()) {
+  switch (instr->InstructionType(Instruction::TypeChecks::EXTRA)) {
     case Instruction::kRegisterType:
       DecodeTypeRegister(instr);
       ++type_register_count_;
@@ -4240,8 +4221,6 @@ void Simulator::InstructionDecode(Instruction* instr) {
       ++type_jump_count_;
       break;
     default:
-      PrintF("aack: the InstructionType returned: %08x\n",
-             instr->InstructionType());
       UNSUPPORTED();
   }
   if (::v8::internal::FLAG_trace_sim) {
